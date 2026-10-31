@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * FDAI (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - FDAI.cpp
+  * 
+  * Changes: added multiplayer state synchronization
+  *		     (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -33,6 +47,8 @@
 #include "PanelSDK/Internals/Esystems.h"
 
 #include "FDAI.h"
+
+#include "connector.h"
 
 FDAI::FDAI() {
 
@@ -52,7 +68,7 @@ FDAI::FDAI() {
 	ACSource = NULL;
 	noAC = false;
 	vessel = NULL;
-	hBallSurf = oapiCreateSurface(180, 180);
+	hBallSurf = oapiCreateSurface(180, 180);// [MP]
 
 	penBlack = oapiCreatePen(1, 1, 0x000000);
 	penWhite = oapiCreatePen(1, 1, 0xffffff);
@@ -60,9 +76,12 @@ FDAI::FDAI() {
 	brushWhite = oapiCreateBrush(0xffffff);
 }
 
-void FDAI::Init(VESSEL *v)
+void FDAI::Init(VESSEL *v, MP_PanelConnector* MPToPanelConnector) //[MP]
 {
 	vessel = v;
+	// [MP]
+	pConn = MPToPanelConnector;
+	// [/MP]
 }
 
 void FDAI::InitGL() {
@@ -374,10 +393,21 @@ void FDAI::PaintMe(VECTOR3 rates, VECTOR3 errors, SURFHANDLE surf, SURFHANDLE hF
 	// For the LM FDAI, the width is 100 pixels (50 px/side), with roll/yaw center at 119
 	// and pitch center at 120. 5 deg/s conversion factor is 572.967398, 25 deg/s is 114.593480.
 
-	if (IsPowered())
-		lastRates = rates;
-	else
+
+	//[MP]
+	if (pConn->getIsClient())
+	{
 		rates = lastRates;
+	}
+
+	else
+	{
+		if (IsPowered())
+			lastRates = rates;
+		else
+			rates = lastRates;
+	}
+	//[/MP]
 
 	int targetX, targetY, targetZ;
 
@@ -442,10 +472,20 @@ void FDAI::PaintMe(VECTOR3 rates, VECTOR3 errors, SURFHANDLE surf, SURFHANDLE hF
 	// 122,42 is the center, 41 px left-right variance, 11 px up-down variance.
 	// 0.268292 px down per pixel left.
 
-	if (IsPowered())
-		lastErrors = errors;
-	else
+	//[MP]
+	if (pConn->getIsClient())
+	{
 		errors = lastErrors;
+	}
+	else
+	{
+		if (IsPowered())
+			lastErrors = errors;
+		else
+			errors = lastErrors;
+	}
+	//[/MP]
+
 	if (!LM_FDAI)
 	{
 		targetY = (int)(fabs(errors.x) * 0.268292);
@@ -482,7 +522,7 @@ void FDAI::Timestep(double simt, double simdt)
 }
 
 void FDAI::SystemTimestep(double simdt) {
-
+	
 	// These numbers are adjusted for the CSM, I don't know if the LM is different.
 	if (IsPowered()) {
 		if (DCSource)
@@ -667,10 +707,61 @@ void FDAI::SetLMmode()
 	LM_FDAI = true;
 }
 
+VECTOR3 FDAI::GetTarget()
+{
+	return target;
+}
+
+void FDAI::SetTarget(VECTOR3 t)
+{
+	target = t;
+}
+
+VECTOR3 FDAI::GetNow()
+{
+	return now;
+}
+
+void FDAI::SetNow(VECTOR3 t)
+{
+	now = t;
+}
+
+VECTOR3 FDAI::GetRates()
+{
+	return lastRates;;
+}
+
+void FDAI::SetRates(VECTOR3 r)
+{
+	lastRates = r;
+}
+
+VECTOR3 FDAI::GetErrors()
+{
+	return lastErrors;
+}
+
+void FDAI::SetErrors(VECTOR3 e)
+{
+	lastErrors = e;
+}
+
 void FDAI::AnimateFDAI(VECTOR3 rates, VECTOR3 errors, UINT animR, UINT animP, UINT animY, UINT errorR, UINT errorP, UINT errorY, UINT rateR, UINT rateP, UINT rateY)
 {
+	//[MP]
+	VECTOR3 newRates = rates;
+	VECTOR3 newErrors = errors;
+
+	if (pConn && pConn->getIsClient())
+	{
+		newRates = lastRates;
+		newErrors = lastErrors;
+	}
+	
 	double fdai_proc[3];
 	double rate_proc[3];
+
 
 	// Drive FDAI ball
 	fdai_proc[0] = now.y / PI2;
@@ -684,14 +775,14 @@ void FDAI::AnimateFDAI(VECTOR3 rates, VECTOR3 errors, UINT animR, UINT animP, UI
 	vessel->SetAnimation(animP, fdai_proc[1]);
 
 	// Drive error needles
-	vessel->SetAnimation(errorR, (errors.x + 46) / 92);
-	vessel->SetAnimation(errorP, (-errors.y + 46) / 92);
-	vessel->SetAnimation(errorY, (errors.z + 46) / 92);
+	vessel->SetAnimation(errorR, (newErrors.x + 46) / 92);
+	vessel->SetAnimation(errorP, (-newErrors.y + 46) / 92);
+	vessel->SetAnimation(errorY, (newErrors.z + 46) / 92);
 
 	// Drive rate needles
-	rate_proc[0] = (-rates.z + 1) / 2;
-	rate_proc[1] = (-rates.x + 1) / 2;
-	rate_proc[2] = (rates.y + 1) / 2;
+	rate_proc[0] = (-newRates.z + 1) / 2;
+	rate_proc[1] = (-newRates.x + 1) / 2;
+	rate_proc[2] = (newRates.y + 1) / 2;
 	if (rate_proc[0] < 0) rate_proc[0] = 0;
 	if (rate_proc[1] < 0) rate_proc[1] = 0;
 	if (rate_proc[2] < 0) rate_proc[2] = 0;
@@ -701,6 +792,7 @@ void FDAI::AnimateFDAI(VECTOR3 rates, VECTOR3 errors, UINT animR, UINT animP, UI
 	vessel->SetAnimation(rateR, rate_proc[0]);
 	vessel->SetAnimation(rateP, rate_proc[1]);
 	vessel->SetAnimation(rateY, rate_proc[2]);
+	//[/MP]
 }
 
 //

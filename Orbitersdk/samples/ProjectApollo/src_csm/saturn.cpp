@@ -21,6 +21,24 @@
   See http://nassp.sourceforge.net/license/ for more details.
 
   **************************************************************************/
+
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN BASE CLASS (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - saturn.cpp
+  * 
+  * Changes: Added Multiplayer connector to Saturn Vessel
+  *	         Added Multiplayer connector to DSKYs
+  *		     Client State Sync for Mission Timer
+  *		     Disable SPS engine timestep on Client
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #define ORBITER_MODULE
 
 // To force Orbitersdk.h to use <fstream> in any compiler version
@@ -363,8 +381,11 @@ BOOL CALLBACK EnumAxesCallback( const DIDEVICEOBJECTINSTANCE* pdidoi, VOID* pSat
 Saturn::Saturn(OBJHANDLE hObj, int fmodel) : ProjectApolloConnectorVessel (hObj, fmodel), 
 	inertialData(this),
 	agc(soundlib, dsky, dsky2, imu, scdu, tcdu, Panelsdk),
+	// [MP]
 	dsky(soundlib, agc, Panelsdk, 015),
 	dsky2(soundlib, agc, Panelsdk, 016),
+	MPToPanelConnector(MainPanel, this),
+	// [/MP]
 	CMCDCBusFeeder("CMC-DCBus-Feeder", Panelsdk),
 	imu(agc, Panelsdk, inertialData),
 	scdu(agc, RegOPTX, 0140, 2),
@@ -476,7 +497,9 @@ Saturn::Saturn(OBJHANDLE hObj, int fmodel) : ProjectApolloConnectorVessel (hObj,
 	CSMACVoltMeter(89.0, 131.0),
 	DCAmpMeter(0.0, 100.0),
 	SystemTestVoltMeter(0.0, 5.0),
-	EMSDvSetSwitch(Sclick),
+	// [MP]
+	EMSDvSetSwitch(Sclick, &MPToPanelConnector),
+	// [/MP]
 	SideHatch(HatchOpenSound, HatchCloseSound),	// SDockingCapture
 	ForwardHatch(HatchOpenSound, HatchCloseSound),
 	omnia(_V(0.707108, -0.707108, 0.0)), //Orbiter Coordinate System
@@ -567,6 +590,9 @@ Saturn::Saturn(OBJHANDLE hObj, int fmodel) : ProjectApolloConnectorVessel (hObj,
 #pragma warning ( pop ) // disable:4355
 
 {	
+	// [MP]
+	MPToDskyConnector = dsky.getMPConnector();
+		
 	//_CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF|_CRTDBG_CHECK_ALWAYS_DF );
 	InitSaturnCalled = false;
 
@@ -601,6 +627,8 @@ Saturn::Saturn(OBJHANDLE hObj, int fmodel) : ProjectApolloConnectorVessel (hObj,
 	// Register visible connectors.
 	//
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &MFDToPanelConnector);
+	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &MPToPanelConnector);
+	RegisterConnector(VIRTUAL_CONNECTOR_PORT, MPToDskyConnector);
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &cdi);
 	RegisterConnector(0, &CSMToLEMConnector);
 	RegisterConnector(0, &lemECSConnector);
@@ -1652,6 +1680,19 @@ void Saturn::clbkPreStep(double simt, double simdt, double mjd)
 
 	sprintf(buffer, "End time(0) %lld", time(0)); 
 	TRACE(buffer);
+
+	// [MP]
+	// Check if mission timer sync is ready
+	if (MPToPanelConnector.getIsClient())
+	{
+		if (oapiGetSimTime() >= MPToPanelConnector.GetSyncTime())
+		{
+			MissionTime = MPToPanelConnector.GetMissionTime();
+			MissionTimerDisplay.SetTime(MissionTime);
+			MissionTimer306Display.SetTime(MissionTime);
+		}
+	}
+	// [/MP]
 }
 
 void Saturn::clbkPostStep(double simt, double simdt, double mjd)
@@ -1676,9 +1717,11 @@ void Saturn::clbkPostStep(double simt, double simdt, double mjd)
 		// The SPS engine must be in post time step 
 		// to inhibit Orbiter's thrust control
 		//
-
-		SPSEngine.Timestep(SimulatedTime, simdt);
-
+		// [MP]
+		if (!MPToPanelConnector.getIsClient())
+			SPSEngine.Timestep(SimulatedTime, simdt);
+		//[/MP]
+		
 		// Better acceleration measurement stability
 		imu.Timestep(simdt);
 		tcdu.Timestep(simdt);
@@ -3461,7 +3504,10 @@ void Saturn::GenericTimestep(double simt, double simdt, double mjd)
 	//sprintf(oapiDebugString(), "stage=%d AX=%8.4lf AY=%8.4lf AZ=%8.4lf thsum=%5.2lf dynpress=%9.1lf proplev=%9.0lf propratio=%6.2lf pogofreq=%6.1lf pogoamp=%6.2lf voffs=(%5.2lf, %5.2lf, %5.2lf)", stage, vAccel.x, vAccel.y, vAccel.z, thsum, dynpress, proplev, propratio, pogofreq, pogoamp, ViewOffsetx, ViewOffsety, ViewOffsetz);
 
 	if (noiselat > 0.0 || (vAccel.x*vAccel.x + vAccel.y*vAccel.y + vAccel.z*vAccel.z) > 0.01) {
-		JostleViewpoint(noiselat, noiselong, noisefreq, simdt, -seatacc.x / 200.0, -seatacc.y / 200.0, -seatacc.z / 300.0);
+		// [MP]
+		//if (!MPToPanelConnector.getSyncClient())
+			JostleViewpoint(noiselat, noiselong, noisefreq, simdt, -seatacc.x / 200.0, -seatacc.y / 200.0, -seatacc.z / 300.0);
+		// [/MP]
 		LastVPAccelTime = SimulatedTime;
 	}
 	else if (SimulatedTime <LastVPAccelTime + 5.0){

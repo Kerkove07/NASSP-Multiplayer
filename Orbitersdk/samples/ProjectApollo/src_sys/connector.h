@@ -22,8 +22,26 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * CONNECTOR CLASS
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - connector.h (Connector Class)
+  * 
+  * Changes: added multiplayer state synchronization
+  *		     (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #if !defined(_PA_CONNECTOR_H)
 #define _PA_CONNECTOR_H
+
+#include "VesselAPI.h"
+
+#include <limits>
 
 ///
 /// \ingroup Connectors
@@ -37,6 +55,10 @@ enum ConnectorType
 	CSM_LEM_DOCKING,			///< Docking connector between CSM and LEM.
 	LEM_CSM_POWER,				///< Power connection from CSM to LEM.
 	MFD_PANEL_INTERFACE,		///< Connector from an MFD to a panel.
+	// [MP]
+	MP_PANEL_INTERFACE,
+	MP_DSKY_INTERFACE,
+	// [/MP]
 	LEM_CSM_ECS,				///< Tunnel connection from CSM to LEM.
 	CHECKLIST_DATA_INTERFACE,	///< Data connector from checklist controller to vessel
 	PAYLOAD_SLA_CONNECT,		///< Passes commands and data between payload and SIVb.
@@ -257,6 +279,293 @@ private:
 	PanelSwitches &panel;
 	ChecklistController &checklist;
 };
+
+// [MP]
+// Multiplayer Panel Connector
+class Saturn;
+class LEM;
+
+class MP_PanelConnector : public Connector
+{
+public:
+
+	///
+	/// \ingroup Connectors
+	/// \brief Message type to send from the CSM to the SIVb.
+	///
+	static enum MP_PanelConnectorMessageType
+	{
+		MP_PANEL_FLASH_ITEM,					///< Turn flash on or off.
+		MP_PANEL_GET_ITEM_STATE,				///< Get the item's current state.
+		MP_PANEL_SET_ITEM_STATE,				///< Set the item's current state.  
+		MP_PANEL_GET_FAILED_STATE,
+		MP_PANEL_SWITCH_TOGGLED,
+		MP_PANEL_GUARD_TOGGLED,
+		MP_PANEL_SEATS_TOGGLED,
+		MP_PANEL_SET_SEATS,
+		MP_PANEL_SET_IS_CLIENT,
+		MP_PANEL_GET_MISSION_TIME,
+		MP_PANEL_SET_MISSION_TIME,
+		MP_PANEL_SYNC_MISSION_TIME,
+		MP_PANEL_SET_FDAI,
+		MP_PANEL_FDAI_CHANGED,
+		MP_PANEL_SIVB_SEPARATED,
+		MP_PANEL_RHC_CHANGED,
+		MP_PANEL_SET_RHC,
+		MP_PANEL_THC_CHANGED,
+		MP_PANEL_SET_THC,
+		MP_PANEL_RCS_SOUND_CHANGED,
+		MP_PANEL_SET_RCS_SOUND,
+		MP_PANEL_SET_THRUSTER,
+		MP_PANEL_THRUSTER_CHANGED,
+		MP_PANEL_LANDED,
+		MP_PANEL_SET_LANDED
+	};
+
+	static enum MP_FdaiType
+	{
+		FDAI1_Target,
+		FDAI1_Rates,
+		FDAI1_Errors,
+		FDAI2_Target,
+		FDAI2_Rates,
+		FDAI2_Errors
+	};
+
+	MP_PanelConnector(PanelSwitches& p, Saturn* pSat);
+	MP_PanelConnector(PanelSwitches& p, LEM* pLem);
+	~MP_PanelConnector();
+
+	bool ReceiveMessage(Connector* from, ConnectorMessage& m);
+
+	bool getIsClient();
+	bool getSyncClient();
+	void setSyncClient(bool sync);
+	bool getSyncRhc();
+	void setSyncRhc(bool sync);
+	bool getSyncThc();
+	void setSyncThc(bool sync);
+	bool getSyncClientThrusters();
+	void setSyncClientThrusters(bool sync);
+	void setLandedState(bool state);
+	bool getLandedState();
+
+	bool MasterAlarmPressed = false;
+
+	// EMS
+	int EMSDvSetSwitch = 0;
+	double EMSDvVoltage = 0.0;
+
+	// Mission Time
+	double GetSyncTime();
+	double GetMissionTime();
+
+	// FDAI
+	VECTOR3 FDAI1;
+	VECTOR3 dFDAI1;
+	VECTOR3 FDAI1_last;
+	
+	VECTOR3 FDAI1_rates;
+	VECTOR3 dFDAI1_rates;
+	VECTOR3 FDAI1_rates_new;
+	
+	VECTOR3 FDAI1_errors;
+	VECTOR3 dFDAI1_errors;
+	VECTOR3 FDAI1_errors_new;
+	
+	double Fdai1Simt1;
+	double Fdai1Simt2;
+	
+
+	VECTOR3 FDAI2;
+	VECTOR3 dFDAI2;
+	VECTOR3 FDAI2_last;
+
+	VECTOR3 FDAI2_rates;
+	VECTOR3 dFDAI2_rates;
+	VECTOR3 FDAI2_rates_new;
+	
+	VECTOR3 FDAI2_errors;
+	VECTOR3 dFDAI2_errors;
+	VECTOR3 FDAI2_errors_new;
+
+	double Fdai2Simt1;
+	double Fdai2Simt2;
+
+	double lastFdaiSync;
+
+	// RHC/THC
+	VECTOR3 rhc;
+	VECTOR3 thc;
+
+	// Sounds/Animations (Replaced by thrusters section) TODO: Remove this section and use thrusters instead
+	bool rcsSound = false;
+	bool rcsSustainSound = false;
+
+	// Thrusters
+	bool syncClientThrusters = false;
+	bool SendThruster(const char* name, int index, double value);
+	
+	struct
+	{
+		double th_rcs_a[8];
+		double th_rcs_b[8];
+		double th_rcs_c[8];
+		double th_rcs_d[8];
+		double th_att_cm[12];
+		double th_sps[1];
+	} sat_thrusters;	// Saturn Thruster Levels
+
+	struct
+	{
+		double th_hover[1];
+		double th_dust[4];
+		double th_rcs[16];
+	} lem_thrusters;	// LEM Thruster Levels
+
+private:
+	PanelSwitches& panel;
+	
+	bool isClient = false;	// Is Multiplayer Client
+	bool syncClient = false;	// Sync Client with Host
+	bool syncRhc = false;	// Sync RHC
+	bool syncThc = false;	// Sync THC
+	bool landedState = false; // LEM Landed State
+
+	Saturn* sat;
+	LEM* lem;
+
+	double mtOffset = 0.0; // Mission Timer offset from Simt
+	double timeToSync = 999999999999.; // Delay simt to sync mission timer (Allow simt to sync with mjd before updating mission timer)
+};
+
+// Multiplayer DSKY Connector
+class DSKY;
+
+class MP_DskyConnector : public Connector
+{
+public:
+
+	static enum DskyLightType
+	{
+		COMP_ACTY,
+		UPLINK,
+		NO_ATT,
+		STBY,
+		KB_REL,
+		OPR_ERR,
+		TEMP,
+		GIM_LOCK,
+		PROG,
+		RESTART,
+		TRACKER,
+		VEL,
+		ALT,
+		PRIO_DISP,
+		NO_DAP
+	};
+	
+	///
+	/// \ingroup Connectors
+	/// \brief Message type to send from the CSM to the SIVb.
+	///
+	static enum MP_DskyConnectorMessageType
+	{
+		MP_DSKY_SET_HOSTING,
+		MP_DSKY_SET_LIGHT,
+		MP_DSKY_SET_NOUN,
+		MP_DSKY_SET_VERB,
+		MP_DSKY_SET_PROG,
+		MP_DSKY_SET_R1,
+		MP_DSKY_SET_R2,
+		MP_DSKY_SET_R3,
+		MP_DSKY_SET_VERB_FLASH,
+		MP_DSKY_SET_NOUN_FLASH,
+		MP_DSKY_LIGHT_CHANGED,
+		MP_DSKY_NOUN_CHANGED,
+		MP_DSKY_VERB_CHANGED,
+		MP_DSKY_PROG_CHANGED,
+		MP_DSKY_R1_CHANGED,
+		MP_DSKY_R2_CHANGED,
+		MP_DSKY_R3_CHANGED,
+		MP_DSKY_VERB_FLASH_CHANGED,
+		MP_DSKY_NOUN_FLASH_CHANGED
+	};
+
+	MP_DskyConnector(DSKY& d);
+	~MP_DskyConnector();
+
+	bool ReceiveMessage(Connector* from, ConnectorMessage& m);
+
+	// Previous DSKY States
+	bool CompActy;
+	bool UplinkLight;
+	bool NoAttLight;
+	bool StbyLight;
+	bool KbRelLight;
+	bool OprErrLight;
+	bool TempLight;
+	bool GimbalLockLight;
+	bool ProgLight;
+	bool RestartLight;
+	bool TrackerLight;
+	bool VelLight;
+	bool AltLight;
+	bool PrioDispLight;
+	bool NoDAPLight;
+
+	char Prog[3];
+	char Verb[3];
+	char Noun[3];
+	char R1[7];
+	char R2[7];
+	char R3[7];
+
+	bool VerbFlashing;
+	bool NounFlashing;
+
+	bool isHosting();
+
+private:
+	DSKY& dsky;
+	
+	bool hosting;
+	
+};
+
+/*class MP_SaturnConnector : public Connector
+{
+public:
+
+	///
+	/// \ingroup Connectors
+	/// \brief Message type to send from the CSM to the SIVb.
+	///
+	static enum MP_SaturnConnectorMessageType
+	{
+		MP_PANEL_FLASH_ITEM,					///< Turn flash on or off.
+		MP_PANEL_GET_ITEM_STATE,				///< Get the item's current state.
+		MP_PANEL_SET_ITEM_STATE,				///< Set the item's current state.  
+		MP_PANEL_GET_FAILED_STATE,
+		MP_PANEL_SWITCH_TOGGLED,
+		MP_PANEL_SET_IS_CLIENT,
+		MP_PANEL_DSKY_CHANGED,
+	};
+
+	MP_PanelConnector(PanelSwitches& p);
+	~MP_PanelConnector();
+
+	bool ReceiveMessage(Connector* from, ConnectorMessage& m);
+
+	bool getIsClient();
+
+	bool MasterAlarmPressed = false;
+
+private:
+	PanelSwitches& panel;
+	bool isClient = false;
+};*/
+
 
 ///
 /// ProjectApollo-specific vessel which allows us to get connectors to communicate

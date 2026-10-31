@@ -26,6 +26,8 @@
 #if !defined(_PA_CSMCAUTIONWARNING_H)
 #define _PA_CSMCAUTIONWARNING_H
 
+#include "soundlib.h"
+
 // moved from Saturn.h as "foreward reference" because of FuelCellBad
 
 ///

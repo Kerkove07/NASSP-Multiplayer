@@ -22,6 +22,21 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * LEM PANEL (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - lempanel.cpp
+  * 
+  * Changes: Added Toggled ConnectorMessage to TwoPositionSwitch, RotationalSwitch
+  *			 Client State Sync for FDAIs
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -272,9 +287,9 @@ void LEM::InitSwitches() {
 	MainFuelPressInd.Register(PSH,"MainFuelPressInd",0,300,2);
 	MainOxidizerTempInd.Register(PSH,"MainOxidizerTempInd",40,100,2);
 	MainOxidizerPressInd.Register(PSH,"MainOxidizerPressInd",0,300,2);
-	DPSOxidPercentMeter.Register(PSH, "DPSOxidPercentMeter", 0, 0.99, 0, 0);
-	DPSFuelPercentMeter.Register(PSH, "DPSFuelPercentMeter", 0, 0.99, 0, 0);
-	MainHeliumPressureMeter.Register(PSH, "MainHeliumPressureMeter", 0, 9999, 0, 0);
+	DPSOxidPercentMeter.Register(PSH, "DPSOxidPercentMeter", 0, 0.99, 0, 0, nullptr);
+	DPSFuelPercentMeter.Register(PSH, "DPSFuelPercentMeter", 0, 0.99, 0, 0, nullptr);
+	MainHeliumPressureMeter.Register(PSH, "MainHeliumPressureMeter", 0, 9999, 0, 0, nullptr);
 
 	GyroTestLeftSwitch.Register(PSH, "GyroTestLeftSwitch",  THREEPOSSWITCH_UP);
 	GyroTestRightSwitch.Register(PSH, "GyroTestRightSwitch",  THREEPOSSWITCH_CENTER, SPRINGLOADEDSWITCH_CENTER);
@@ -463,12 +478,12 @@ void LEM::InitSwitches() {
 	CDRAudioControlSwitch.Register(PSH,"CDRAudioControlSwitch",TOGGLESWITCH_UP);
 	CDRAudVHFASwitch.Register(PSH,"CDRAudVHFASwitch",THREEPOSSWITCH_CENTER);
 	CDRAudVHFBSwitch.Register(PSH,"CDRAudVHFBSwitch",THREEPOSSWITCH_CENTER);
-	CDRAudSBandVol.Register(PSH,"CDRAudSBandVol",6,9);
-	CDRAudVHFAVol.Register(PSH,"CDRAudVHFAVol",6,9);
-	CDRAudVHFBVol.Register(PSH,"CDRAudVHFBVol",6,9);
-	CDRAudICSVol.Register(PSH,"CDRAudICSVol",6,9);
-	CDRAudMasterVol.Register(PSH,"CDRAudMasterVol",6,9);
-	CDRAudVOXSens.Register(PSH,"CDRAudVOXSens",9,9);
+	CDRAudSBandVol.Register(PSH,"CDRAudSBandVol",6,9, nullptr);
+	CDRAudVHFAVol.Register(PSH,"CDRAudVHFAVol",6,9, nullptr);
+	CDRAudVHFBVol.Register(PSH,"CDRAudVHFBVol",6,9, nullptr);
+	CDRAudICSVol.Register(PSH,"CDRAudICSVol",6,9, nullptr);
+	CDRAudMasterVol.Register(PSH,"CDRAudMasterVol",6,9, nullptr);
+	CDRAudVOXSens.Register(PSH,"CDRAudVOXSens",9,9, nullptr);
 	CDRCOASSwitch.Register(PSH,"CDRCOASSwitch",THREEPOSSWITCH_CENTER);
 
 	LMPAudSBandSwitch.Register(PSH,"LMPAudSBandSwitch",THREEPOSSWITCH_CENTER);
@@ -477,12 +492,12 @@ void LEM::InitSwitches() {
 	LMPAudVOXSwitch.Register(PSH,"LMPAudVOXSwitch",THREEPOSSWITCH_CENTER);
 	LMPAudVHFASwitch.Register(PSH,"LMPAudVHFASwitch",THREEPOSSWITCH_CENTER);
 	LMPAudVHFBSwitch.Register(PSH,"LMPAudVHFBSwitch",THREEPOSSWITCH_CENTER);
-	LMPAudSBandVol.Register(PSH,"LMPAudSBandVol",6,9);
-	LMPAudVHFAVol.Register(PSH,"LMPAudVHFAVol",6,9);
-	LMPAudVHFBVol.Register(PSH,"LMPAudVHFBVol",6,9);
-	LMPAudICSVol.Register(PSH,"LMPAudICSVol",6,9);
-	LMPAudMasterVol.Register(PSH,"LMPAudMasterVol",6,9);
-	LMPAudVOXSens.Register(PSH,"LMPAudVOXSens",9,9);
+	LMPAudSBandVol.Register(PSH,"LMPAudSBandVol",6,9, nullptr);
+	LMPAudVHFAVol.Register(PSH,"LMPAudVHFAVol",6,9, nullptr);
+	LMPAudVHFBVol.Register(PSH,"LMPAudVHFBVol",6,9, nullptr);
+	LMPAudICSVol.Register(PSH,"LMPAudICSVol",6,9, nullptr);
+	LMPAudMasterVol.Register(PSH,"LMPAudMasterVol",6,9, nullptr);
+	LMPAudVOXSens.Register(PSH,"LMPAudVOXSens",9,9, nullptr);
 	SBandModulateSwitch.Register(PSH,"SBandModulateSwitch",TOGGLESWITCH_UP);
 	SBandXCvrSelSwitch.Register(PSH,"SBandXCvrSelSwitch",THREEPOSSWITCH_CENTER);
 	SBandPASelSwitch.Register(PSH,"SBandPASelSwitch",THREEPOSSWITCH_CENTER);
@@ -495,8 +510,8 @@ void LEM::InitSwitches() {
 	VHFBRcvrSwtich.Register(PSH,"VHFBRcvrSwtich",TOGGLESWITCH_DOWN);
 	TLMBiomedSwtich.Register(PSH,"TLMBiomedSwtich",THREEPOSSWITCH_CENTER);
 	TLMBitrateSwitch.Register(PSH,"TLMBitrateSwitch",TOGGLESWITCH_UP);
-	VHFASquelch.Register(PSH,"VHFASquelch",3,9);
-	VHFBSquelch.Register(PSH,"VHFBSquelch",3,9);
+	VHFASquelch.Register(PSH,"VHFASquelch",3,9, nullptr);
+	VHFBSquelch.Register(PSH,"VHFBSquelch",3,9, nullptr);
 	TapeRecorderTB.Register(PSH, "TapeRecorderTB", false);
 	TapeRecorderSwitch.Register(PSH,"TapeRecorderSwitch",TOGGLESWITCH_DOWN);
 	AGSOperateSwitch.Register(PSH,"AGSOperateSwitch",THREEPOSSWITCH_DOWN);
@@ -801,7 +816,7 @@ void LEM::InitSwitches() {
 	ORDEALLightingSwitch.Register(PSH, "ORDEALLightingSwitch", THREEPOSSWITCH_CENTER);
 	ORDEALModeSwitch.Register(PSH, "ORDEALModeSwitch", false);
 	ORDEALSlewSwitch.Register(PSH, "ORDEALSlewSwitch", THREEPOSSWITCH_CENTER, SPRINGLOADEDSWITCH_CENTER);
-	PanelOrdeal.Register(PSH, "PanelOrdeal", 0, 0, 0, 0);	// dummy switch/display for checklist controller
+	PanelOrdeal.Register(PSH, "PanelOrdeal", 0, 0, 0, 0, nullptr);	// dummy switch/display for checklist controller
 
 	// ECS Panel
 	SuitGasDiverterSwitch.Register(PSH, "SuitGasDiverterSwitch", 0);
@@ -1941,8 +1956,8 @@ void LEM::SetSwitches(int panel) {
 
 	MainPanel.Init(0, this, &soundlib, this);
 
-	fdaiLeft.Init(this);
-	fdaiRight.Init(this);
+	fdaiLeft.Init(this, nullptr);
+	fdaiRight.Init(this, nullptr);
 
 	MainPropOxidPercentRow.Init(AID_MPS_OXID_QUANTITY_INDICATOR, MainPanel);
 	DPSOxidPercentMeter.Init(srf[SRF_DIGITALDISP2], MainPropOxidPercentRow, this);
@@ -2735,6 +2750,18 @@ void LEM::RCSHeaterSwitchToggled(TwoPositionSwitch *s, int *pump) {
 
 void LEM::PanelSwitchToggled(TwoPositionSwitch *s) {
 
+	// [MP]
+	ConnectorMessage MP_ToggleMsg;
+	MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+	MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+	MP_ToggleMsg.val1.pValue = (void*)s->GetName();
+	MP_ToggleMsg.val2.iValue = s->GetState();
+	MP_ToggleMsg.val3.bValue = s->GetGuardState();
+	MP_ToggleMsg.val4.bValue = s->IsHeld();
+
+	MPToPanelConnector.SendMessage(MP_ToggleMsg);
+	// [/MP]
+	
 	//RCS Switchable Heaters//
 
 	//RCS Heater 1
@@ -2769,6 +2796,16 @@ void LEM::PanelIndicatorSwitchStateRequested(IndicatorSwitch *s) {
 
 void LEM::PanelRotationalSwitchChanged(RotationalSwitch *s) {
 
+	// [MP]
+	ConnectorMessage MP_ToggleMsg;
+	MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+	MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+	MP_ToggleMsg.val1.pValue = (void*)s->GetName();
+	MP_ToggleMsg.val2.iValue = s->GetState();
+
+	MPToPanelConnector.SendMessage(MP_ToggleMsg);
+	// [/MP]
+	
 	//Oxygen Control//
 
 		//DES O2 Tank Valve

@@ -22,6 +22,21 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN-SPECIFIC SWITCHES (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - satswitches.cpp
+  * 
+  * Changes: Added Toggled ConnectorMessage to SaturnEMSDVSetSwitch
+  *			 Client Sync functionality for SaturnEMSDvDisplay
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -1860,15 +1875,18 @@ void SaturnSCControlSetter::SetSCControl(Saturn *sat)
 		sat->agc.SetInputChannelBit(031, GNAutopilotControl, false);
 	}
 }
-
-void SaturnEMSDvDisplay::Init(SURFHANDLE digits, SwitchRow &row, Saturn *s)
+// [MP]
+void SaturnEMSDvDisplay::Init(SURFHANDLE digits, SwitchRow &row, Saturn *s, MP_PanelConnector* MPToPanelConnector)
 {
 	MeterSwitch::Init(row);
 	Digits = digits;
 	Sat = s;
 	minMaxTime = 0;	// Don't animate/interpolate between reported values
+
+	pConn = MPToPanelConnector;
 }
 
+// [/MP]
 void SaturnEMSDvDisplay::DoDrawSwitch(double v, SURFHANDLE drawSurface)
 {
 	if (Voltage() < SP_MIN_DCVOLTAGE || Sat->ems.IsOff() || !Sat->ems.IsDisplayPowered()) return;
@@ -1925,6 +1943,34 @@ void SaturnEMSDvDisplay::DoDrawSwitchVC(SURFHANDLE surf, double v, SURFHANDLE dr
 }
 
 double SaturnEMSDvDisplay::QueryValue() {
+	// [MP]
+	/*// Host (This only calls in VC mode.  Moved elsewhere)
+	if (!pConn->getIsClient())
+	{
+		Sat->ems.Set_MP_IsClient(false);
+		
+		if (Sat->ems.GetdVRangeCounter() != pConn->EMSDvVoltage)
+		{
+			pConn->EMSDvVoltage = Sat->ems.GetdVRangeCounter();
+			
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = "EMSDvDisplay";
+			cm.val2.iValue = pConn->EMSDvVoltage * 1000.;
+
+			pConn->SendMessage(cm);
+		}
+	}*/
+		
+	// Client
+	if (pConn->getIsClient())
+	{
+		Sat->ems.Set_MP_IsClient(true);
+		return pConn->EMSDvVoltage;
+	}
+	
+	// [/MP]
 	return Sat->ems.GetdVRangeCounter();
 }
 
@@ -2028,13 +2074,14 @@ void SaturnASCPSwitch::SetState(int value) {
 	Sat->ascp.output.data[Axis] = value / 10.;
 }
 
-SaturnEMSDvSetSwitch::SaturnEMSDvSetSwitch(Sound &clicksound) : ClickSound(clicksound)
+SaturnEMSDvSetSwitch::SaturnEMSDvSetSwitch(Sound &clicksound, MP_PanelConnector* MPToPanelConnector) : ClickSound(clicksound)
 {
 	sat = NULL;
 	position = 0;
 	anim_emsdvsetswitch = -1;
 	grp = 0;
 	dvswitchrot = NULL;
+	pConn = MPToPanelConnector;
 }
 
 SaturnEMSDvSetSwitch::~SaturnEMSDvSetSwitch()
@@ -2044,13 +2091,15 @@ SaturnEMSDvSetSwitch::~SaturnEMSDvSetSwitch()
 
 bool SaturnEMSDvSetSwitch::CheckMouseClick(int event, int mx, int my)
 {
-	int oldPos = position;
+	// [MP]
+	int oldPos = position;	
 	switch(event) {
 		case PANEL_MOUSE_LBPRESSED:
 			if (my < 44)
 				position = 1;
 			else
-				position = 3;			
+				position = 3;	
+			hold = true;
 			break;
 
 		case PANEL_MOUSE_RBPRESSED:
@@ -2058,20 +2107,40 @@ bool SaturnEMSDvSetSwitch::CheckMouseClick(int event, int mx, int my)
 				position = 2;
 			else
 				position = 4;
+			hold = true;
 			break;
 
 		case PANEL_MOUSE_LBUP:
 		case PANEL_MOUSE_RBUP:
-			position = 0;
+			if (hold)
+			{
+				position = 0;
+				hold = false;
+			}
 			break;
 	}
-	if (position && position != oldPos)
-		ClickSound.play();
+
+	if (position != oldPos)
+	{
+		ConnectorMessage cm;
+		cm.destination = MP_PANEL_INTERFACE;
+		cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+		cm.val1.pValue = (void*)"EMSDvSetSwitch";
+		cm.val2.iValue = position;
+		pConn->SendMessage(cm);
+
+		pConn->EMSDvSetSwitch = position;
+
+		if (position)
+			ClickSound.play();
+	}
+	// [/MP]
 	return true;
 }
 
-bool SaturnEMSDvSetSwitch::CheckMouseClickVC(int event, VECTOR3 &p) {
-
+bool SaturnEMSDvSetSwitch::CheckMouseClickVC(int event, VECTOR3 &p) 
+{
+	// [MP]
 	int oldPos = position;
 	switch (event) {
 	case PANEL_MOUSE_LBPRESSED:
@@ -2079,6 +2148,7 @@ bool SaturnEMSDvSetSwitch::CheckMouseClickVC(int event, VECTOR3 &p) {
 			position = 1;
 		else
 			position = 3;
+		hold = true;
 		break;
 
 	case PANEL_MOUSE_RBPRESSED:
@@ -2086,15 +2156,34 @@ bool SaturnEMSDvSetSwitch::CheckMouseClickVC(int event, VECTOR3 &p) {
 			position = 2;
 		else
 			position = 4;
+		hold = true;
 		break;
 
 	case PANEL_MOUSE_LBUP:
 	case PANEL_MOUSE_RBUP:
-		position = 0;
+		if (hold)
+		{
+			position = 0;
+			hold = false;
+		}
 		break;
 	}
-	if (position && position != oldPos)
-		ClickSound.play();
+
+	if (position != oldPos)
+	{
+		ConnectorMessage cm;
+		cm.destination = MP_PANEL_INTERFACE;
+		cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+		cm.val1.pValue = "EMSDvSetSwitch";
+		cm.val2.iValue = position;
+		pConn->SendMessage(cm);
+
+		pConn->EMSDvSetSwitch = position;
+
+		if (position)
+			ClickSound.play();
+	}
+	// [/MP]
 	return true;
 }
 

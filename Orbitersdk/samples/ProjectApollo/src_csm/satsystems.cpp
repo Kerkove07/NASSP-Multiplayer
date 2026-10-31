@@ -23,6 +23,28 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN HARDWARE SYSTEMS (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - satsystems.cpp
+  * 
+  * Changes: Added Toggled ConnectorMessage to MasterAlarmSwitch
+  *			 Client State Sync for EMSDvSetSwitch
+  *			 Client State Sync for EMS Dipslay
+  *			 Client State Sync for DSKYs
+  *			 Client State Sync for SM RCS, CM RCS, SPS
+  *			 Client State Sync for FDAIs
+  *			 Client State Sync Disabled until CSM/SIVB Staging
+  *			 Inhibit RJEC timestep on Client
+  *			 Client State Sync for THC/RHC
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -41,6 +63,8 @@
 #include "ioChannels.h"
 #include "tracer.h"
 #include "Mission.h"
+
+#include "MPhelpers.h"
 
 //FILE *PanelsdkLogFile;
 
@@ -487,7 +511,7 @@ void Saturn::SystemsInit() {
 	bmag1.Init(1, this, &SystemMnACircuitBraker, &StabContSystemAc1CircuitBraker, (Boiler *) Panelsdk.GetPointerByString("ELECTRIC:BMAGHEATER1"));
 	bmag2.Init(2, this, &SystemMnBCircuitBraker, &StabContSystemAc2CircuitBraker, (Boiler *) Panelsdk.GetPointerByString("ELECTRIC:BMAGHEATER2"));
 	gdc.Init(this);
-	ascp.Init(this);
+	ascp.Init(this, &MPToPanelConnector);
 	eda.Init(this);
 	rjec.Init(this);
 	eca.Init(this);
@@ -825,9 +849,167 @@ void Saturn::SystemsTimestep(double simt, double simdt, double mjd) {
 
 		Failures.Timestep();
 		dsky.Timestep(simt);
+		
+		// [MP]
+		// Check Switches not handled by Panel
+		if (MasterAlarmSwitch.GetState() != MPToPanelConnector.MasterAlarmPressed)
+		{
+			MPToPanelConnector.MasterAlarmPressed = MasterAlarmSwitch.GetState();
+			ConnectorMessage MP_ToggleMsg;
+			MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+			MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			MP_ToggleMsg.val1.pValue = (void*)MasterAlarmSwitch.GetName();
+			MP_ToggleMsg.val2.iValue = MasterAlarmSwitch.GetState();
+
+			MPToPanelConnector.SendMessage(MP_ToggleMsg);
+		}
+		
+		if (EMSDvSetSwitch.GetPosition() != MPToPanelConnector.EMSDvSetSwitch)
+			EMSDvSetSwitch.SetPosition(MPToPanelConnector.EMSDvSetSwitch);
+
+		// EMS dV Range Counter Sync
+		if (!MPToPanelConnector.getIsClient())
+		{
+			ems.Set_MP_IsClient(false);
+
+			if (ems.GetdVRangeCounter() != MPToPanelConnector.EMSDvVoltage)
+			{
+				MPToPanelConnector.EMSDvVoltage = ems.GetdVRangeCounter();
+
+				ConnectorMessage cm;
+				cm.destination = MP_PANEL_INTERFACE;
+				cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+				cm.val1.pValue = "EMSDvDisplay";
+				cm.val2.iValue = MPToPanelConnector.EMSDvVoltage * 1000.;
+
+				MPToPanelConnector.SendMessage(cm);
+			}
+		}
+
+
+		// Sync Dsky2 to Dsky OR Run AGC Timetep
+		if (MPToPanelConnector.getIsClient())
+		{
+			dsky2.setDskyState(dsky.getDskyState());
+		}
+		else
+		{
+			agc.Timestep(SimulatedTime, simdt);
+		}
+
+		// SYNC CLIENT THRUSTERS
+		// Set Max Thrust Levels to Zero on Client.
+		if (MPToPanelConnector.getIsClient())
+		{
+			if (!MPToPanelConnector.getSyncClientThrusters())
+			{
+				// SM RCS
+				for (int i = 0; i < 8; i++)
+				{
+					if (th_rcs_a[i]) SetThrusterMax0(th_rcs_a[i], 0.0);
+					if (th_rcs_b[i]) SetThrusterMax0(th_rcs_b[i], 0.0);
+					if (th_rcs_c[i]) SetThrusterMax0(th_rcs_c[i], 0.0);
+					if (th_rcs_d[i]) SetThrusterMax0(th_rcs_d[i], 0.0);
+				}
+
+				// CM RCS
+				for (int i = 0; i < 12; i++)
+				{
+					if (th_att_cm[i]) SetThrusterMax0(th_att_cm[i], 0.0);
+				}
+
+				// SPS
+				if (th_sps[0])
+				{
+					SetThrusterResource(th_sps[0], GetSPSPropellant()->Handle());
+					SetThrusterMax0(th_sps[0], 0.0);
+				}
+
+				MPToPanelConnector.setSyncClientThrusters(true);
+			}
+
+			// Sync Thrust Levels from Server
+			else
+			{
+				// SM RCS
+				for (int i = 0; i < 8; i++)
+				{
+					if (th_rcs_a[i]) SetThrusterLevel(th_rcs_a[i], MPToPanelConnector.sat_thrusters.th_rcs_a[i]);
+					if (th_rcs_b[i]) SetThrusterLevel(th_rcs_b[i], MPToPanelConnector.sat_thrusters.th_rcs_b[i]);
+					if (th_rcs_c[i]) SetThrusterLevel(th_rcs_c[i], MPToPanelConnector.sat_thrusters.th_rcs_c[i]);
+					if (th_rcs_d[i]) SetThrusterLevel(th_rcs_d[i], MPToPanelConnector.sat_thrusters.th_rcs_d[i]);
+				}
+
+				// CM RCS
+				for (int i = 0; i < 12; i++)
+				{
+					if (th_att_cm[i])  SetThrusterLevel(th_att_cm[i], MPToPanelConnector.sat_thrusters.th_att_cm[i]);
+				}
+	
+				// SPS
+				if (th_sps[0]) SetThrusterLevel(th_sps[0], MPToPanelConnector.sat_thrusters.th_sps[0]);
+			}
+		}
+
+		// Server:  Send Thruster Levels to Client
+		else
+		{
+			// SM RCS
+			for (int i = 0; i < 8; i++)
+			{
+				if (th_rcs_a[i] && GetThrusterLevel(th_rcs_a[i]) != MPToPanelConnector.sat_thrusters.th_rcs_a[i])
+				{
+					MPToPanelConnector.sat_thrusters.th_rcs_a[i] = GetThrusterLevel(th_rcs_a[i]);
+					MPToPanelConnector.SendThruster("th_rcs_a", i, MPToPanelConnector.sat_thrusters.th_rcs_a[i]);
+				}
+
+				if (th_rcs_b[i] && GetThrusterLevel(th_rcs_b[i]) != MPToPanelConnector.sat_thrusters.th_rcs_b[i])
+				{
+					MPToPanelConnector.sat_thrusters.th_rcs_b[i] = GetThrusterLevel(th_rcs_b[i]);
+					MPToPanelConnector.SendThruster("th_rcs_b", i, MPToPanelConnector.sat_thrusters.th_rcs_b[i]);
+				}
+
+				if (th_rcs_c[i] && GetThrusterLevel(th_rcs_c[i]) != MPToPanelConnector.sat_thrusters.th_rcs_c[i])
+				{
+					MPToPanelConnector.sat_thrusters.th_rcs_c[i] = GetThrusterLevel(th_rcs_c[i]);
+					MPToPanelConnector.SendThruster("th_rcs_c", i, MPToPanelConnector.sat_thrusters.th_rcs_c[i]);
+				}
+
+				if (th_rcs_d[i] && GetThrusterLevel(th_rcs_d[i]) != MPToPanelConnector.sat_thrusters.th_rcs_d[i])
+				{
+					MPToPanelConnector.sat_thrusters.th_rcs_d[i] = GetThrusterLevel(th_rcs_d[i]);
+					MPToPanelConnector.SendThruster("th_rcs_d", i, MPToPanelConnector.sat_thrusters.th_rcs_d[i]);
+				}
+			}
+
+			// CM RCS
+			for (int i = 0; i < 12; i++)
+			{
+				if (th_att_cm[i] && GetThrusterLevel(th_att_cm[i]) != MPToPanelConnector.sat_thrusters.th_att_cm[i])
+				{
+					MPToPanelConnector.sat_thrusters.th_att_cm[i] = GetThrusterLevel(th_att_cm[i]);
+					MPToPanelConnector.SendThruster("th_att_cm", i, MPToPanelConnector.sat_thrusters.th_att_cm[i]);
+				}
+			}
+
+			// SPS
+			if (th_sps[0] && GetThrusterLevel(th_sps[0]) != MPToPanelConnector.sat_thrusters.th_sps[0])
+			{
+				MPToPanelConnector.sat_thrusters.th_sps[0] = GetThrusterLevel(th_sps[0]);
+				MPToPanelConnector.SendThruster("th_sps", 0, MPToPanelConnector.sat_thrusters.th_sps[0]);
+			}
+		}
+
+		// [/MP]
+		
 		dsky2.Timestep(simt);
-		agc.Timestep(SimulatedTime, simdt);
+
 		optics.TimeStep(simdt);
+
+		// [MP] Sync FDAIs
+		if (MPToPanelConnector.getSyncClient())
+			SyncFDAI(simt, simdt);
+		// [/MP]
 
 
 		//
@@ -837,6 +1019,13 @@ void Saturn::SystemsTimestep(double simt, double simdt, double mjd) {
 		{
 			iu->Timestep(simt, simdt, mjd);
 		}
+		// [MP]
+		// Enable Client Sync Once
+		if (stage >= CSM_LEM_STAGE && !MPToPanelConnector.getSyncClient())
+		{
+			MPToPanelConnector.setSyncClient(true);
+		}
+		// [/MP]
 		if (stage == LAUNCH_STAGE_SIVB || stage == STAGE_ORBIT_SIVB)
 		{
 			sivb->Timestep(simdt);
@@ -847,7 +1036,10 @@ void Saturn::SystemsTimestep(double simt, double simdt, double mjd) {
 		ascp.TimeStep(simdt);
 		gdc.Timestep(simdt);
 		eca.TimeStep(simdt);
-		rjec.TimeStep(simdt);
+		// [MP]
+		if (!MPToPanelConnector.getIsClient())
+			rjec.TimeStep(simdt);
+		//[/MP]
 		tvsa.TimeStep(simdt);
 		eda.Timestep(simdt);
 		cws.TimeStep(SimulatedTime);
@@ -860,9 +1052,18 @@ void Saturn::SystemsTimestep(double simt, double simdt, double mjd) {
 		MissionTimer306Display.Timestep(simt, simdt, false);
 		EventTimerDisplay.Timestep(simt, simdt, true);
 		EventTimer306Display.Timestep(simt, simdt, true);
-		fdaiLeft.SetAttitude(eda.GetFDAI1Attitude());
+		// [MP]
+		if (!MPToPanelConnector.getIsClient() || (MPToPanelConnector.getIsClient() && !MPToPanelConnector.getSyncClient()))
+			fdaiLeft.SetAttitude(eda.GetFDAI1Attitude());
+		// [/MP]
+
 		fdaiLeft.Timestep(simt, simdt);
-		fdaiRight.SetAttitude(eda.GetFDAI2Attitude());
+
+		// [MP]
+		if (!MPToPanelConnector.getIsClient() || (MPToPanelConnector.getIsClient() && !MPToPanelConnector.getSyncClient()))
+			fdaiRight.SetAttitude(eda.GetFDAI2Attitude());
+		// [/MP]
+
 		fdaiRight.Timestep(simt, simdt);
 		SPSPropellant.Timestep(simt, simdt);
 		JoystickTimestep();
@@ -1965,7 +2166,7 @@ void Saturn::JoystickTimestep()
 		// Invert joystick configuration according to navmode in case of one joystick
 		int tmp_id, tmp_rot_id, tmp_sld_id, tmp_rzx_id, tmp_pov_id, tmp_debug;
 		if (rhc_thctoggle && ((rhc_id != -1 && thc_id == -1 && GetAttitudeMode() == RCS_LIN) ||
-			                  (rhc_id == -1 && thc_id != -1 && GetAttitudeMode() == RCS_ROT))) {
+			(rhc_id == -1 && thc_id != -1 && GetAttitudeMode() == RCS_ROT))) {
 
 			tmp_id = rhc_id;
 			tmp_rot_id = rhc_rot_id;
@@ -1990,19 +2191,19 @@ void Saturn::JoystickTimestep()
 		}
 
 		// Issue warnings for bad configuration
-		if (thc_id != -1 && !(thc_id < js_enabled)){
-			sprintf(oapiDebugString(),"DX8JS: Joystick selected as THC does not exist.");
+		if (thc_id != -1 && !(thc_id < js_enabled)) {
+			sprintf(oapiDebugString(), "DX8JS: Joystick selected as THC does not exist.");
 		}
-		if (rhc_id != -1 && !(rhc_id < js_enabled)){
-			sprintf(oapiDebugString(),"DX8JS: Joystick selected as RHC does not exist.");
+		if (rhc_id != -1 && !(rhc_id < js_enabled)) {
+			sprintf(oapiDebugString(), "DX8JS: Joystick selected as RHC does not exist.");
 		}
 
 		HRESULT hr;
 		ChannelValue val31;
-		e_object *direct_power1, *direct_power2;
+		e_object* direct_power1, * direct_power2;
 		val31 = agc.GetInputChannel(031); // Get current data
 		// Mask off joystick bits
-		val31  = val31.to_ulong() & 070000;
+		val31 = val31.to_ulong() & 070000;
 
 		// We'll do this with a RHC first. 						
 		double rhc_voltage1 = 0, rhc_voltage2 = 0;
@@ -2012,61 +2213,61 @@ void Saturn::JoystickTimestep()
 		// There's more than one RHC in the real ship, but ours is "both" - having the power on for either one will work.
 
 		// DC Power
-		switch(RotPowerNormal1Switch.GetState()) {
-			case THREEPOSSWITCH_UP:       
-				rhc_voltage1 = RHCNormalPower.Voltage();
-				break;
+		switch (RotPowerNormal1Switch.GetState()) {
+		case THREEPOSSWITCH_UP:
+			rhc_voltage1 = RHCNormalPower.Voltage();
+			break;
 		}
-		switch(RotPowerNormal2Switch.GetState()){
-			case THREEPOSSWITCH_UP:       
-				rhc_voltage2 = RHCNormalPower.Voltage();
-				break;
+		switch (RotPowerNormal2Switch.GetState()) {
+		case THREEPOSSWITCH_UP:
+			rhc_voltage2 = RHCNormalPower.Voltage();
+			break;
 		}
 
 		// AC Power		
 		if (eca.IsAC1Powered()) {	// ECA needs to be powered (AOH Display & Controls)
 			switch (RotPowerNormal1Switch.GetState()) {
-				case THREEPOSSWITCH_UP:
-				case THREEPOSSWITCH_DOWN:
-					rhc_acvoltage1 = StabContSystemAc1CircuitBraker.Voltage();
-					break;
+			case THREEPOSSWITCH_UP:
+			case THREEPOSSWITCH_DOWN:
+				rhc_acvoltage1 = StabContSystemAc1CircuitBraker.Voltage();
+				break;
 			}
 		}
 		if (eca.IsAC2Powered()) {
-			switch(RotPowerNormal2Switch.GetState()){
-				case THREEPOSSWITCH_UP:       
-				case THREEPOSSWITCH_DOWN:     
-					rhc_acvoltage2 = ECATVCAc2CircuitBraker.Voltage();
-					break;
+			switch (RotPowerNormal2Switch.GetState()) {
+			case THREEPOSSWITCH_UP:
+			case THREEPOSSWITCH_DOWN:
+				rhc_acvoltage2 = ECATVCAc2CircuitBraker.Voltage();
+				break;
 			}
 		}
 
 		// Direct power
-		switch(RotPowerDirect1Switch.GetState()){
-			case THREEPOSSWITCH_UP:       // MNA/MNB
-				rhc_directv1 = RHCDirect1Power.Voltage();
-				direct_power1 = &RHCDirect1Power;
-				break;
-			case THREEPOSSWITCH_DOWN:     // MNA
-				rhc_directv1 = ContrDirectMnA1CircuitBraker.Voltage();
-				direct_power1 = &ContrDirectMnA1CircuitBraker;
-				break;
+		switch (RotPowerDirect1Switch.GetState()) {
+		case THREEPOSSWITCH_UP:       // MNA/MNB
+			rhc_directv1 = RHCDirect1Power.Voltage();
+			direct_power1 = &RHCDirect1Power;
+			break;
+		case THREEPOSSWITCH_DOWN:     // MNA
+			rhc_directv1 = ContrDirectMnA1CircuitBraker.Voltage();
+			direct_power1 = &ContrDirectMnA1CircuitBraker;
+			break;
 		}
-		switch(RotPowerDirect2Switch.GetState()){
-			case THREEPOSSWITCH_UP:       // MNA/MNB
-				rhc_directv2 = RHCDirect2Power.Voltage();
-				direct_power2 = &RHCDirect2Power;
-				break;
-			case THREEPOSSWITCH_DOWN:     // MNB
-				rhc_directv2 = ContrDirectMnB2CircuitBraker.Voltage();
-				direct_power2 = &ContrDirectMnB2CircuitBraker;
-				break;
+		switch (RotPowerDirect2Switch.GetState()) {
+		case THREEPOSSWITCH_UP:       // MNA/MNB
+			rhc_directv2 = RHCDirect2Power.Voltage();
+			direct_power2 = &RHCDirect2Power;
+			break;
+		case THREEPOSSWITCH_DOWN:     // MNB
+			rhc_directv2 = ContrDirectMnB2CircuitBraker.Voltage();
+			direct_power2 = &ContrDirectMnB2CircuitBraker;
+			break;
 		}
 
 		// Initialize to centered
-		int rhc_x_pos = 32768; 
-		int rhc_y_pos = 32768; 
-		int rhc_rot_pos = 32768; 
+		int rhc_x_pos = 32768;
+		int rhc_y_pos = 32768;
+		int rhc_rot_pos = 32768;
 		if (enableVESIM) {
 			if (GetAttitudeMode() == RCS_ROT) {
 				rhc_x_pos = vesim.getInputValue(CSM_AXIS_INPUT_RHC_R);
@@ -2075,17 +2276,18 @@ void Saturn::JoystickTimestep()
 			}
 			//sprintf(oapiDebugString(), "RHC: X/Y/Z = %d / %d / %d | rzx_id %d rot_id %d", rhc_x_pos, rhc_y_pos, rhc_rot_pos, rhc_rzx_id, rhc_rot_id);
 		}
-		else if (rhc_id != -1 && rhc_id < js_enabled) {	
+		else if (rhc_id != -1 && rhc_id < js_enabled) {
 			hr = dx8_joystick[rhc_id]->Poll();
 			if (FAILED(hr)) { // Did that work?
 				// Attempt to acquire the device
 				hr = dx8_joystick[rhc_id]->Acquire();
 				if (FAILED(hr)) {
-					sprintf(oapiDebugString(),"DX8JS: Cannot aquire RHC");
-				} else {
+					sprintf(oapiDebugString(), "DX8JS: Cannot aquire RHC");
+				}
+				else {
 					hr = dx8_joystick[rhc_id]->Poll();
 				}
-			}		
+			}
 			// Read data
 			dx8_joystick[rhc_id]->GetDeviceState(sizeof(dx8_jstate[rhc_id]), &dx8_jstate[rhc_id]);
 			rhc_x_pos = dx8_jstate[rhc_id].lX;
@@ -2094,16 +2296,18 @@ void Saturn::JoystickTimestep()
 			// Z-axis read.
 			if (rhc_rzx_id != -1 && rhc_rot_id == -1) { // Native Z-axis first unless rot is also set
 				rhc_rot_pos = dx8_jstate[rhc_id].lZ;
-			} else if (rhc_rot_id != -1) { // Then if this is a rotator-type axis
-				switch(rhc_rot_id) {
-					case 0:
-						rhc_rot_pos = dx8_jstate[rhc_id].lRx; break;
-					case 1:
-						rhc_rot_pos = dx8_jstate[rhc_id].lRy; break;
-					case 2:
-						rhc_rot_pos = dx8_jstate[rhc_id].lRz; break;
+			}
+			else if (rhc_rot_id != -1) { // Then if this is a rotator-type axis
+				switch (rhc_rot_id) {
+				case 0:
+					rhc_rot_pos = dx8_jstate[rhc_id].lRx; break;
+				case 1:
+					rhc_rot_pos = dx8_jstate[rhc_id].lRy; break;
+				case 2:
+					rhc_rot_pos = dx8_jstate[rhc_id].lRz; break;
 				}
-			} else if (rhc_sld_id != -1) { // Finally if this is a slider
+			}
+			else if (rhc_sld_id != -1) { // Finally if this is a slider
 				rhc_rot_pos = dx8_jstate[rhc_id].rglSlider[rhc_sld_id];
 			}
 
@@ -2114,12 +2318,14 @@ void Saturn::JoystickTimestep()
 						SetAttitudeMode(RCS_LIN);
 					}
 					rhc_thctoggle_pressed = true;
-				} else {
+				}
+				else {
 					rhc_thctoggle_pressed = false;
 				}
 			}
-		// Use Orbiter's attitude control as RHC
-		} else {
+			// Use Orbiter's attitude control as RHC
+		}
+		else {
 			// Roll
 			double rollLeft = rhc_keyboard_deflection[THGROUP_ATT_BANKLEFT - THGROUP_ATT_PITCHUP];
 			double rollRight = rhc_keyboard_deflection[THGROUP_ATT_BANKRIGHT - THGROUP_ATT_PITCHUP];
@@ -2149,6 +2355,37 @@ void Saturn::JoystickTimestep()
 			}
 		}
 
+		// [MP]
+		if (MPToPanelConnector.getIsClient())
+		{
+			if (MPToPanelConnector.rhc.x != rhc_x_pos || MPToPanelConnector.rhc.y != rhc_y_pos || MPToPanelConnector.rhc.z != rhc_rot_pos)
+			{
+				MPToPanelConnector.rhc.x = rhc_x_pos;
+				MPToPanelConnector.rhc.y = rhc_y_pos;
+				MPToPanelConnector.rhc.z = rhc_rot_pos;
+
+				ConnectorMessage cm;
+				cm.destination = MP_PANEL_INTERFACE;
+				cm.messageType = MP_PanelConnector::MP_PANEL_RHC_CHANGED;
+				cm.val1.iValue = rhc_x_pos;
+				cm.val2.iValue = rhc_y_pos;
+				cm.val3.iValue = rhc_rot_pos;
+
+				MPToPanelConnector.SendMessage(cm);
+			}
+		}
+
+		else
+		{
+			if (rhc_x_pos == 32768 && rhc_y_pos == 32768 && rhc_rot_pos == 32768)
+			{
+				rhc_x_pos = MPToPanelConnector.rhc.x;
+				rhc_y_pos = MPToPanelConnector.rhc.y;
+				rhc_rot_pos = MPToPanelConnector.rhc.z;
+			}
+		}
+		// [/MP]
+
 		int rhc_pos[3] = { rhc_x_pos, rhc_y_pos, rhc_rot_pos };
 
 		rhc2.Timestep(rhc_pos, rhc_voltage2 > SP_MIN_DCVOLTAGE, eca.IsAC2Powered(), rhc_directv2 > SP_MIN_DCVOLTAGE, rhc_directv2 > SP_MIN_DCVOLTAGE);
@@ -2161,7 +2398,7 @@ void Saturn::JoystickTimestep()
 			// CMC
 			if (rhc2.GetMinusRollBreakoutSwitch()) {
 				val31[MinusRollManualRotation] = 1;
-			}					
+			}
 			if (rhc2.GetMinusPitchBreakoutSwitch()) {
 				val31[MinusPitchManualRotation] = 1;
 			}
@@ -2185,364 +2422,391 @@ void Saturn::JoystickTimestep()
 
 		int rflag = 0, pflag = 0, yflag = 0; // Direct Fire Untriggers
 
-		// CM/SM transfer, either motor transfers all thruster, see AOH Figure 2.5-4
-		bool sm_sep = false;
-		if (secs.rcsc.GetCMTransferMotor1() || secs.rcsc.GetCMTransferMotor2()) sm_sep = true;
+		//[MP]
+		if (!MPToPanelConnector.getIsClient())
+		{
+			// CM/SM transfer, either motor transfers all thruster, see AOH Figure 2.5-4
+			bool sm_sep = false;
+			if (secs.rcsc.GetCMTransferMotor1() || secs.rcsc.GetCMTransferMotor2()) sm_sep = true;
 
-		if ((rhc_directv1 > SP_MIN_DCVOLTAGE || rhc_directv2 > SP_MIN_DCVOLTAGE)) {
-			if (rhc2.GetMinusRollHardStopSwitch()) {
-				// MINUS ROLL
-				if (!sm_sep) {						
-					SetRCSState(RCS_SM_QUAD_A, 2, 1);
-					SetRCSState(RCS_SM_QUAD_B, 2, 1); 
-					SetRCSState(RCS_SM_QUAD_C, 2, 1);
-					SetRCSState(RCS_SM_QUAD_D, 2, 1);
-					SetRCSState(RCS_SM_QUAD_A, 1, 0);
-					SetRCSState(RCS_SM_QUAD_B, 1, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 1, 0);
-					SetRCSState(RCS_SM_QUAD_D, 1, 0); 
+			if ((rhc_directv1 > SP_MIN_DCVOLTAGE || rhc_directv2 > SP_MIN_DCVOLTAGE)) {
+				if (rhc2.GetMinusRollHardStopSwitch()) {
+					// MINUS ROLL
+					if (!sm_sep) {
+						SetRCSState(RCS_SM_QUAD_A, 2, 1);
+						SetRCSState(RCS_SM_QUAD_B, 2, 1);
+						SetRCSState(RCS_SM_QUAD_C, 2, 1);
+						SetRCSState(RCS_SM_QUAD_D, 2, 1);
+						SetRCSState(RCS_SM_QUAD_A, 1, 0);
+						SetRCSState(RCS_SM_QUAD_B, 1, 0);
+						SetRCSState(RCS_SM_QUAD_C, 1, 0);
+						SetRCSState(RCS_SM_QUAD_D, 1, 0);
 
-					// Disable CM thrusters
-					SetCMRCSState(8,0); 
-					SetCMRCSState(9,0);
-					SetCMRCSState(11,0);
-					SetCMRCSState(10,0);
+						// Disable CM thrusters
+						SetCMRCSState(8, 0);
+						SetCMRCSState(9, 0);
+						SetCMRCSState(11, 0);
+						SetCMRCSState(10, 0);
 
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(200); // Four thrusters worth
-					} else {
-						direct_power2->DrawPower(200);
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(200); // Four thrusters worth
+						}
+						else {
+							direct_power2->DrawPower(200);
+						}
 					}
-				} else {
-					SetCMRCSState(8,0); 
-					SetCMRCSState(9,0);
-					SetCMRCSState(11,1);
-					SetCMRCSState(10,1);
+					else {
+						SetCMRCSState(8, 0);
+						SetCMRCSState(9, 0);
+						SetCMRCSState(11, 1);
+						SetCMRCSState(10, 1);
 
-					// Disable SM thrusters
+						// Disable SM thrusters
+						SetRCSState(RCS_SM_QUAD_A, 2, 0);
+						SetRCSState(RCS_SM_QUAD_B, 2, 0);
+						SetRCSState(RCS_SM_QUAD_C, 2, 0);
+						SetRCSState(RCS_SM_QUAD_D, 2, 0);
+						SetRCSState(RCS_SM_QUAD_A, 1, 0);
+						SetRCSState(RCS_SM_QUAD_B, 1, 0);
+						SetRCSState(RCS_SM_QUAD_C, 1, 0);
+						SetRCSState(RCS_SM_QUAD_D, 1, 0);
+
+						if (rhc_directv1 > 12) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					rjec.SetDirectRollActive(true);
+					rflag = 1;
+				}
+				if (rhc2.GetPlusRollHardStopSwitch()) {
+					// PLUS ROLL
+					if (!sm_sep) {
+						SetRCSState(RCS_SM_QUAD_A, 2, 0);
+						SetRCSState(RCS_SM_QUAD_B, 2, 0);
+						SetRCSState(RCS_SM_QUAD_C, 2, 0);
+						SetRCSState(RCS_SM_QUAD_D, 2, 0);
+						SetRCSState(RCS_SM_QUAD_A, 1, 1);
+						SetRCSState(RCS_SM_QUAD_B, 1, 1);
+						SetRCSState(RCS_SM_QUAD_C, 1, 1);
+						SetRCSState(RCS_SM_QUAD_D, 1, 1);
+
+						// Disable CM thrusters
+						SetCMRCSState(8, 0);
+						SetCMRCSState(9, 0);
+						SetCMRCSState(11, 0);
+						SetCMRCSState(10, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(200);
+						}
+						else {
+							direct_power2->DrawPower(200);
+						}
+					}
+					else {
+						SetCMRCSState(8, 1);
+						SetCMRCSState(9, 1);
+						SetCMRCSState(11, 0);
+						SetCMRCSState(10, 0);
+
+						// Disable SM thrusters
+						SetRCSState(RCS_SM_QUAD_A, 2, 0);
+						SetRCSState(RCS_SM_QUAD_B, 2, 0);
+						SetRCSState(RCS_SM_QUAD_C, 2, 0);
+						SetRCSState(RCS_SM_QUAD_D, 2, 0);
+						SetRCSState(RCS_SM_QUAD_A, 1, 0);
+						SetRCSState(RCS_SM_QUAD_B, 1, 0);
+						SetRCSState(RCS_SM_QUAD_C, 1, 0);
+						SetRCSState(RCS_SM_QUAD_D, 1, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					rjec.SetDirectRollActive(true);
+					rflag = 1;
+				}
+				if (rhc2.GetMinusPitchHardStopSwitch()) {
+					// MINUS PITCH
+					if (!sm_sep) {
+						SetRCSState(RCS_SM_QUAD_C, 4, 1);
+						SetRCSState(RCS_SM_QUAD_A, 4, 1);
+						SetRCSState(RCS_SM_QUAD_C, 3, 0);
+						SetRCSState(RCS_SM_QUAD_A, 3, 0);
+
+						// Disable CM thrusters
+						SetCMRCSState(0, 0);
+						SetCMRCSState(1, 0);
+						SetCMRCSState(2, 0);
+						SetCMRCSState(3, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					else {
+						SetCMRCSState(0, 0);
+						SetCMRCSState(1, 0);
+						SetCMRCSState(2, 1);
+						SetCMRCSState(3, 1);
+
+						// Disable SM thrusters
+						SetRCSState(RCS_SM_QUAD_C, 4, 0);
+						SetRCSState(RCS_SM_QUAD_A, 4, 0);
+						SetRCSState(RCS_SM_QUAD_C, 3, 0);
+						SetRCSState(RCS_SM_QUAD_A, 3, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					rjec.SetDirectPitchActive(true);
+					pflag = 1;
+				}
+				if (rhc2.GetPlusPitchHardStopSwitch()) {
+					// PLUS PITCH
+					if (!sm_sep) {
+						SetRCSState(RCS_SM_QUAD_C, 4, 0);
+						SetRCSState(RCS_SM_QUAD_A, 4, 0);
+						SetRCSState(RCS_SM_QUAD_C, 3, 1);
+						SetRCSState(RCS_SM_QUAD_A, 3, 1);
+
+						// Disable CM thrusters
+						SetCMRCSState(0, 0);
+						SetCMRCSState(1, 0);
+						SetCMRCSState(2, 0);
+						SetCMRCSState(3, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					else {
+						SetCMRCSState(0, 1);
+						SetCMRCSState(1, 1);
+						SetCMRCSState(2, 0);
+						SetCMRCSState(3, 0);
+
+						// Disable SM thrusters
+						SetRCSState(RCS_SM_QUAD_C, 4, 0);
+						SetRCSState(RCS_SM_QUAD_A, 4, 0);
+						SetRCSState(RCS_SM_QUAD_C, 3, 0);
+						SetRCSState(RCS_SM_QUAD_A, 3, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					rjec.SetDirectPitchActive(true);
+					pflag = 1;
+				}
+				if (rhc2.GetMinusYawHardStopSwitch()) {
+					// MINUS YAW
+					if (!sm_sep) {
+						SetRCSState(RCS_SM_QUAD_B, 4, 1);
+						SetRCSState(RCS_SM_QUAD_D, 4, 1);
+						SetRCSState(RCS_SM_QUAD_D, 3, 0);
+						SetRCSState(RCS_SM_QUAD_B, 3, 0);
+
+						// Disable CM thrusters
+						SetCMRCSState(4, 0);
+						SetCMRCSState(5, 0);
+						SetCMRCSState(6, 0);
+						SetCMRCSState(7, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					else {
+						SetCMRCSState(4, 0);
+						SetCMRCSState(5, 0);
+						SetCMRCSState(6, 1);
+						SetCMRCSState(7, 1);
+
+						// Disable SM thrusters
+						SetRCSState(RCS_SM_QUAD_B, 4, 0);
+						SetRCSState(RCS_SM_QUAD_D, 4, 0);
+						SetRCSState(RCS_SM_QUAD_D, 3, 0);
+						SetRCSState(RCS_SM_QUAD_B, 3, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					rjec.SetDirectYawActive(true);
+					yflag = 1;
+				}
+				if (rhc2.GetPlusYawHardStopSwitch()) {
+					// PLUS YAW
+					if (!sm_sep) {
+						SetRCSState(RCS_SM_QUAD_D, 3, 1);
+						SetRCSState(RCS_SM_QUAD_B, 3, 1);
+						SetRCSState(RCS_SM_QUAD_B, 4, 0);
+						SetRCSState(RCS_SM_QUAD_D, 4, 0);
+
+						// Disable CM thrusters
+						SetCMRCSState(4, 0);
+						SetCMRCSState(5, 0);
+						SetCMRCSState(6, 0);
+						SetCMRCSState(7, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					else {
+						SetCMRCSState(4, 1);
+						SetCMRCSState(5, 1);
+						SetCMRCSState(6, 0);
+						SetCMRCSState(7, 0);
+
+						// Disable SM thrusters
+						SetRCSState(RCS_SM_QUAD_D, 3, 0);
+						SetRCSState(RCS_SM_QUAD_B, 3, 0);
+						SetRCSState(RCS_SM_QUAD_B, 4, 0);
+						SetRCSState(RCS_SM_QUAD_D, 4, 0);
+
+						if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
+							direct_power1->DrawPower(100);
+						}
+						else {
+							direct_power2->DrawPower(100);
+						}
+					}
+					rjec.SetDirectYawActive(true);
+					yflag = 1;
+				}
+			}
+			if (rjec.GetDirectRollActive() == true && rflag == 0) { // Turn off direct roll
+				if (!sm_sep) {
+					SetRCSState(RCS_SM_QUAD_A, 1, 0);
+					SetRCSState(RCS_SM_QUAD_B, 1, 0);
+					SetRCSState(RCS_SM_QUAD_C, 1, 0);
+					SetRCSState(RCS_SM_QUAD_D, 1, 0);
 					SetRCSState(RCS_SM_QUAD_A, 2, 0);
-					SetRCSState(RCS_SM_QUAD_B, 2, 0); 
+					SetRCSState(RCS_SM_QUAD_B, 2, 0);
 					SetRCSState(RCS_SM_QUAD_C, 2, 0);
 					SetRCSState(RCS_SM_QUAD_D, 2, 0);
-					SetRCSState(RCS_SM_QUAD_A, 1, 0);
-					SetRCSState(RCS_SM_QUAD_B, 1, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 1, 0);
-					SetRCSState(RCS_SM_QUAD_D, 1, 0); 
-
-					if (rhc_directv1 > 12) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
 				}
-				rjec.SetDirectRollActive(true); 
-				rflag = 1;
-			}
-			if (rhc2.GetPlusRollHardStopSwitch()) {
-				// PLUS ROLL
-				if (!sm_sep) {
-					SetRCSState(RCS_SM_QUAD_A, 2, 0); 
-					SetRCSState(RCS_SM_QUAD_B, 2, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 2, 0);
-					SetRCSState(RCS_SM_QUAD_D, 2, 0);
-					SetRCSState(RCS_SM_QUAD_A, 1, 1);
-					SetRCSState(RCS_SM_QUAD_B, 1, 1); 
-					SetRCSState(RCS_SM_QUAD_C, 1, 1);
-					SetRCSState(RCS_SM_QUAD_D, 1, 1); 
-
-					// Disable CM thrusters
-					SetCMRCSState(8, 0); 
+				else {
+					SetCMRCSState(8, 0);
 					SetCMRCSState(9, 0);
-					SetCMRCSState(11, 0);
 					SetCMRCSState(10, 0);
-					
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(200);
-					} else {
-						direct_power2->DrawPower(200);
-					}
-				} else {
-					SetCMRCSState(8, 1); 
-					SetCMRCSState(9, 1);
 					SetCMRCSState(11, 0);
-					SetCMRCSState(10, 0);
-
-					// Disable SM thrusters
-					SetRCSState(RCS_SM_QUAD_A, 2, 0); 
-					SetRCSState(RCS_SM_QUAD_B, 2, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 2, 0);
-					SetRCSState(RCS_SM_QUAD_D, 2, 0);
-					SetRCSState(RCS_SM_QUAD_A, 1, 0);
-					SetRCSState(RCS_SM_QUAD_B, 1, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 1, 0);
-					SetRCSState(RCS_SM_QUAD_D, 1, 0); 
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
 				}
-				rjec.SetDirectRollActive(true); 
-				rflag = 1;
+				rjec.SetDirectRollActive(false);
 			}
-			if (rhc2.GetMinusPitchHardStopSwitch()) {
-				// MINUS PITCH
+			if (rjec.GetDirectPitchActive() == true && pflag == 0) { // Turn off direct pitch
 				if (!sm_sep) {
-					SetRCSState(RCS_SM_QUAD_C, 4, 1);
-					SetRCSState(RCS_SM_QUAD_A, 4, 1); 
 					SetRCSState(RCS_SM_QUAD_C, 3, 0);
-					SetRCSState(RCS_SM_QUAD_A, 3, 0); 
-				
-					// Disable CM thrusters
+					SetRCSState(RCS_SM_QUAD_A, 3, 0);
+					SetRCSState(RCS_SM_QUAD_C, 4, 0);
+					SetRCSState(RCS_SM_QUAD_A, 4, 0);
+				}
+				else {
 					SetCMRCSState(0, 0);
 					SetCMRCSState(1, 0);
 					SetCMRCSState(2, 0);
 					SetCMRCSState(3, 0);
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
-				} else {
-					SetCMRCSState(0, 0);
-					SetCMRCSState(1, 0);
-					SetCMRCSState(2, 1);
-					SetCMRCSState(3, 1);
-					
-					// Disable SM thrusters
-					SetRCSState(RCS_SM_QUAD_C, 4, 0);
-					SetRCSState(RCS_SM_QUAD_A, 4, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 3, 0);
-					SetRCSState(RCS_SM_QUAD_A, 3, 0); 
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
 				}
-				rjec.SetDirectPitchActive(true); 
-				pflag = 1;
+				rjec.SetDirectPitchActive(false);
 			}
-			if (rhc2.GetPlusPitchHardStopSwitch()) {
-				// PLUS PITCH
+			if (rjec.GetDirectYawActive() == true && yflag == 0) { // Turn off direct yaw
 				if (!sm_sep) {
-					SetRCSState(RCS_SM_QUAD_C, 4, 0);
-					SetRCSState(RCS_SM_QUAD_A, 4, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 3, 1);
-					SetRCSState(RCS_SM_QUAD_A, 3, 1); 
-
-					// Disable CM thrusters
-					SetCMRCSState(0, 0);
-					SetCMRCSState(1, 0);
-					SetCMRCSState(2, 0);
-					SetCMRCSState(3, 0);
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
-				} else {
-					SetCMRCSState(0, 1);
-					SetCMRCSState(1, 1);
-					SetCMRCSState(2, 0);
-					SetCMRCSState(3, 0);
-					
-					// Disable SM thrusters
-					SetRCSState(RCS_SM_QUAD_C, 4, 0);
-					SetRCSState(RCS_SM_QUAD_A, 4, 0); 
-					SetRCSState(RCS_SM_QUAD_C, 3, 0);
-					SetRCSState(RCS_SM_QUAD_A, 3, 0); 
-					
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
-				}
-				rjec.SetDirectPitchActive(true); 
-				pflag = 1;
-			}
-			if (rhc2.GetMinusYawHardStopSwitch()) {
-				// MINUS YAW
-				if (!sm_sep) {
-					SetRCSState(RCS_SM_QUAD_B, 4, 1);
-					SetRCSState(RCS_SM_QUAD_D, 4, 1); 
 					SetRCSState(RCS_SM_QUAD_D, 3, 0);
-					SetRCSState(RCS_SM_QUAD_B, 3, 0); 
-
-					// Disable CM thrusters
+					SetRCSState(RCS_SM_QUAD_B, 3, 0);
+					SetRCSState(RCS_SM_QUAD_B, 4, 0);
+					SetRCSState(RCS_SM_QUAD_D, 4, 0);
+				}
+				else {
 					SetCMRCSState(4, 0);
 					SetCMRCSState(5, 0);
 					SetCMRCSState(6, 0);
 					SetCMRCSState(7, 0);
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
-				} else {
-					SetCMRCSState(4, 0);
-					SetCMRCSState(5, 0);
-					SetCMRCSState(6, 1);
-					SetCMRCSState(7, 1);
-
-					// Disable SM thrusters
-					SetRCSState(RCS_SM_QUAD_B, 4, 0);
-					SetRCSState(RCS_SM_QUAD_D, 4, 0); 
-					SetRCSState(RCS_SM_QUAD_D, 3, 0);
-					SetRCSState(RCS_SM_QUAD_B, 3, 0); 
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
 				}
-				rjec.SetDirectYawActive(true);
-				yflag = 1;
+				rjec.SetDirectYawActive(false);
 			}
-			if (rhc2.GetPlusYawHardStopSwitch()) {
-				// PLUS YAW
-				if (!sm_sep) {
-					SetRCSState(RCS_SM_QUAD_D, 3, 1);
-					SetRCSState(RCS_SM_QUAD_B, 3, 1); 
-					SetRCSState(RCS_SM_QUAD_B, 4, 0);
-					SetRCSState(RCS_SM_QUAD_D, 4, 0); 
-					
-					// Disable CM thrusters
-					SetCMRCSState(4, 0);
-					SetCMRCSState(5, 0);
-					SetCMRCSState(6, 0);
-					SetCMRCSState(7, 0);
 
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
-				} else {
-					SetCMRCSState(4, 1);
-					SetCMRCSState(5, 1);
-					SetCMRCSState(6, 0);
-					SetCMRCSState(7, 0);
-					
-					// Disable SM thrusters
-					SetRCSState(RCS_SM_QUAD_D, 3, 0);
-					SetRCSState(RCS_SM_QUAD_B, 3, 0); 
-					SetRCSState(RCS_SM_QUAD_B, 4, 0);
-					SetRCSState(RCS_SM_QUAD_D, 4, 0); 
-
-					if (rhc_directv1 > SP_MIN_DCVOLTAGE) {
-						direct_power1->DrawPower(100);
-					} else {
-						direct_power2->DrawPower(100);
-					}
-				}
-				rjec.SetDirectYawActive(true);
-				yflag = 1;
+			if (rhc_debug != -1) {
+				sprintf(oapiDebugString(), "RHC: X/Y/Z = %d / %d / %d | rzx_id %d rot_id %d", rhc_x_pos, rhc_y_pos, rhc_rot_pos, rhc_rzx_id, rhc_rot_id);
 			}
 		}
-		if (rjec.GetDirectRollActive() == true && rflag == 0) { // Turn off direct roll
-			if (!sm_sep) {
-				SetRCSState(RCS_SM_QUAD_A, 1, 0);
-				SetRCSState(RCS_SM_QUAD_B, 1, 0); 
-				SetRCSState(RCS_SM_QUAD_C, 1, 0);
-				SetRCSState(RCS_SM_QUAD_D, 1, 0); 
-				SetRCSState(RCS_SM_QUAD_A, 2, 0);
-				SetRCSState(RCS_SM_QUAD_B, 2, 0); 
-				SetRCSState(RCS_SM_QUAD_C, 2, 0);
-				SetRCSState(RCS_SM_QUAD_D, 2, 0); 
-			} else {
-				SetCMRCSState(8,0);
-				SetCMRCSState(9,0);
-				SetCMRCSState(10,0);
-				SetCMRCSState(11,0);
-			}
-			rjec.SetDirectRollActive(false);
-		}
-		if (rjec.GetDirectPitchActive() == true && pflag == 0) { // Turn off direct pitch
-			if (!sm_sep) {
-				SetRCSState(RCS_SM_QUAD_C, 3, 0);
-				SetRCSState(RCS_SM_QUAD_A, 3, 0); 
-				SetRCSState(RCS_SM_QUAD_C, 4, 0);
-				SetRCSState(RCS_SM_QUAD_A, 4, 0); 
-			} else {
-				SetCMRCSState(0,0);
-				SetCMRCSState(1,0);
-				SetCMRCSState(2,0);
-				SetCMRCSState(3,0);
-			}
-			rjec.SetDirectPitchActive(false);
-		}
-		if (rjec.GetDirectYawActive() == true && yflag == 0) { // Turn off direct yaw
-			if (!sm_sep) {
-				SetRCSState(RCS_SM_QUAD_D, 3, 0);
-				SetRCSState(RCS_SM_QUAD_B, 3, 0); 
-				SetRCSState(RCS_SM_QUAD_B, 4, 0);
-				SetRCSState(RCS_SM_QUAD_D, 4, 0); 
-			} else {
-				SetCMRCSState(4,0);
-				SetCMRCSState(5,0);
-				SetCMRCSState(6,0);
-				SetCMRCSState(7,0);
-			}
-			rjec.SetDirectYawActive(false);
-		}
-		
-		if (rhc_debug != -1) { 
-			sprintf(oapiDebugString(),"RHC: X/Y/Z = %d / %d / %d | rzx_id %d rot_id %d", rhc_x_pos, rhc_y_pos, rhc_rot_pos, rhc_rzx_id, rhc_rot_id);
-		}
+		//[/MP]
 
 		//
 		// And now the THC...
 		//
 
-		double thc_voltage = 0; 
+		double thc_voltage = 0;
 		switch (TransContrSwitch.GetState()) {
-			case TOGGLESWITCH_UP: // The THC is powered from MNA or MNB automatically.
-				thc_voltage = ContrAutoMnACircuitBraker.Voltage();
-				if (thc_voltage < SP_MIN_DCVOLTAGE) {
-					thc_voltage = ContrAutoMnBCircuitBraker.Voltage();
-				}
-				break;
-			case TOGGLESWITCH_DOWN:
-				break;			
+		case TOGGLESWITCH_UP: // The THC is powered from MNA or MNB automatically.
+			thc_voltage = ContrAutoMnACircuitBraker.Voltage();
+			if (thc_voltage < SP_MIN_DCVOLTAGE) {
+				thc_voltage = ContrAutoMnBCircuitBraker.Voltage();
+			}
+			break;
+		case TOGGLESWITCH_DOWN:
+			break;
 		}
 
 		// Initialize to centered
-		int thc_x_pos = 32768; 
-		int thc_y_pos = 32768; 
-		int thc_rot_pos = 32768; 
+		int thc_x_pos = 32768;
+		int thc_y_pos = 32768;
+		int thc_rot_pos = 32768;
 
-		
+
 		if (enableVESIM) {
 			if (GetAttitudeMode() == RCS_ROT) {
 				thc_x_pos = vesim.getInputValue(CSM_AXIS_INPUT_THC_Y);
 				thc_y_pos = 65535 - vesim.getInputValue(CSM_AXIS_INPUT_THC_Z);
 				thc_rot_pos = vesim.getInputValue(CSM_AXIS_INPUT_THC_X);
 			}
-			else{
+			else {
 				thc_x_pos = vesim.getInputValue(CSM_AXIS_INPUT_RHC_R);
 				thc_y_pos = vesim.getInputValue(CSM_AXIS_INPUT_RHC_P);
 				thc_rot_pos = vesim.getInputValue(CSM_AXIS_INPUT_RHC_Y);
 			}
 		}
-		else if (thc_id != -1 && thc_id < js_enabled){
+		else if (thc_id != -1 && thc_id < js_enabled) {
 			hr = dx8_joystick[thc_id]->Poll();
 			if (FAILED(hr)) { // Did that work?
 				// Attempt to acquire the device
 				hr = dx8_joystick[thc_id]->Acquire();
 				if (FAILED(hr)) {
-					sprintf(oapiDebugString(),"DX8JS: Cannot aquire THC");
-				} else {
+					sprintf(oapiDebugString(), "DX8JS: Cannot aquire THC");
+				}
+				else {
 					hr = dx8_joystick[thc_id]->Poll();
 				}
-			}		
+			}
 			// Read data
 			dx8_joystick[thc_id]->GetDeviceState(sizeof(dx8_jstate[thc_id]), &dx8_jstate[thc_id]);
 			thc_x_pos = dx8_jstate[thc_id].lX;
@@ -2551,16 +2815,18 @@ void Saturn::JoystickTimestep()
 			// Z-axis read.
 			if (thc_rzx_id != -1 && thc_rot_id == -1) { // Native Z-axis first unless rot is also set
 				thc_rot_pos = dx8_jstate[thc_id].lZ;
-			} else if (thc_rot_id != -1){ // Then if this is a rotator-type axis
-				switch(thc_rot_id){
-					case 0:
-						thc_rot_pos = dx8_jstate[thc_id].lRx; break;
-					case 1:
-						thc_rot_pos = dx8_jstate[thc_id].lRy; break;
-					case 2:
-						thc_rot_pos = dx8_jstate[thc_id].lRz; break;
+			}
+			else if (thc_rot_id != -1) { // Then if this is a rotator-type axis
+				switch (thc_rot_id) {
+				case 0:
+					thc_rot_pos = dx8_jstate[thc_id].lRx; break;
+				case 1:
+					thc_rot_pos = dx8_jstate[thc_id].lRy; break;
+				case 2:
+					thc_rot_pos = dx8_jstate[thc_id].lRz; break;
 				}
-			} else if(thc_sld_id != -1){ // Finally if this is a slider
+			}
+			else if (thc_sld_id != -1) { // Finally if this is a slider
 				thc_rot_pos = dx8_jstate[thc_id].rglSlider[thc_sld_id];
 			}
 
@@ -2569,13 +2835,14 @@ void Saturn::JoystickTimestep()
 				if (LOWORD(dwPOV) != 0xFFFF) {
 					if (dwPOV > 31500 || dwPOV < 4500) {
 						thc_rot_pos = 65536;
-					} else if (dwPOV > 13500 && dwPOV < 21500) {
+					}
+					else if (dwPOV > 13500 && dwPOV < 21500) {
 						thc_rot_pos = 0;
 					}
 				}
 				//sprintf(oapiDebugString(),"THC: %d", dx8_jstate[thc_id].rgdwPOV[thc_pov_id]);
 			}
-			
+
 			// RCS mode toggle
 			if (rhc_thctoggle && rhc_id == -1 && rhc_thctoggle_id != -1) {
 				if (dx8_jstate[thc_id].rgbButtons[rhc_thctoggle_id]) {
@@ -2583,186 +2850,223 @@ void Saturn::JoystickTimestep()
 						SetAttitudeMode(RCS_ROT);
 					}
 					rhc_thctoggle_pressed = true;
-				} else {
+				}
+				else {
 					rhc_thctoggle_pressed = false;
 				}
 			}
 
-		// Use Orbiter's attitude control as THC
-		} else {
+			// Use Orbiter's attitude control as THC
+		}
+		else {
 			// Up/down
 			if (GetManualControlLevel(THGROUP_ATT_DOWN) > 0) {
-				thc_y_pos = (int) ((1. - GetManualControlLevel(THGROUP_ATT_DOWN)) * 32768.);
-			} else if (GetManualControlLevel(THGROUP_ATT_UP) > 0) {
-				thc_y_pos = (int) (32768. + GetManualControlLevel(THGROUP_ATT_UP) * 32768.);
+				thc_y_pos = (int)((1. - GetManualControlLevel(THGROUP_ATT_DOWN)) * 32768.);
+			}
+			else if (GetManualControlLevel(THGROUP_ATT_UP) > 0) {
+				thc_y_pos = (int)(32768. + GetManualControlLevel(THGROUP_ATT_UP) * 32768.);
 			}
 			// Left/right
 			if (GetManualControlLevel(THGROUP_ATT_LEFT) > 0) {
-				thc_x_pos = (int) ((1. - GetManualControlLevel(THGROUP_ATT_LEFT)) * 32768.);
-			} else if (GetManualControlLevel(THGROUP_ATT_RIGHT) > 0) {
-				thc_x_pos = (int) (32768. + GetManualControlLevel(THGROUP_ATT_RIGHT) * 32768.);
+				thc_x_pos = (int)((1. - GetManualControlLevel(THGROUP_ATT_LEFT)) * 32768.);
+			}
+			else if (GetManualControlLevel(THGROUP_ATT_RIGHT) > 0) {
+				thc_x_pos = (int)(32768. + GetManualControlLevel(THGROUP_ATT_RIGHT) * 32768.);
 			}
 			// Forward/Back
 			if (GetManualControlLevel(THGROUP_ATT_BACK) > 0) {
-				thc_rot_pos = (int) ((1. - GetManualControlLevel(THGROUP_ATT_BACK)) * 32768.);
-			} else if (GetManualControlLevel(THGROUP_ATT_FORWARD) > 0) {
-				thc_rot_pos = (int) (32768. + GetManualControlLevel(THGROUP_ATT_FORWARD) * 32768.);
+				thc_rot_pos = (int)((1. - GetManualControlLevel(THGROUP_ATT_BACK)) * 32768.);
+			}
+			else if (GetManualControlLevel(THGROUP_ATT_FORWARD) > 0) {
+				thc_rot_pos = (int)(32768. + GetManualControlLevel(THGROUP_ATT_FORWARD) * 32768.);
 			}
 		}
 
-		if (thc_voltage > SP_MIN_DCVOLTAGE) {
-			if (SCContSwitch.IsUp() && !THCRotary.IsClockwise()) {	// CMC
-				if (thc_x_pos < 16384) {							
-					val31[MinusYTranslation] = 1;
-				}
-				if (thc_y_pos < 16384) {
-					val31[PlusZTranslation] = 1;
-				}
-				if (thc_x_pos > 49152) {
-					val31[PlusYTranslation] = 1;
-				}
-				if (thc_y_pos > 49152) {
-					val31[MinusZTranslation] = 1;
-				}
-				if (thc_rot_pos < 16384) { 
-					val31[MinusXTranslation] = 1;
-				}
-				if (thc_rot_pos > 49152) {
-					val31[PlusXTranslation] = 1;
-				}
-			}
-			if (thc_debug != -1) { 
-				sprintf(oapiDebugString(),"THC: X/Y/Z = %d / %d / %d", thc_x_pos, thc_y_pos, thc_rot_pos);
-			}
+		// [MP]
+		if (MPToPanelConnector.getIsClient())
+		{
+			if (MPToPanelConnector.thc.x != thc_x_pos || MPToPanelConnector.thc.y != thc_y_pos || MPToPanelConnector.thc.z != thc_rot_pos)
+			{
+				MPToPanelConnector.thc.x = thc_x_pos;
+				MPToPanelConnector.thc.y = thc_y_pos;
+				MPToPanelConnector.thc.z = thc_rot_pos;
 
-			// Update ECA
-			eca.thc_x = thc_x_pos;
-			eca.thc_y = thc_rot_pos;
-			eca.thc_z = thc_y_pos;
-		} else {
-			// Power off
-			eca.thc_x = 32768;
-			eca.thc_y = 32768;
-			eca.thc_z = 32768;
+				ConnectorMessage cm;
+				cm.destination = MP_PANEL_INTERFACE;
+				cm.messageType = MP_PanelConnector::MP_PANEL_THC_CHANGED;
+				cm.val1.iValue = thc_x_pos;
+				cm.val2.iValue = thc_y_pos;
+				cm.val3.iValue = thc_rot_pos;
+
+				MPToPanelConnector.SendMessage(cm);
+			}
 		}
-		// Submit data to the AGC
-		agc.SetInputChannel(031, val31);
-	}
 
-	//
-	// IMPORTANT: The following must be the last SetRCSState calls within a time step, especially after the RJ/EC
-	// The thrusters are turned off by the RJ/EC or the direct coil handling above.
-	//
+		else
+		{
+			if (thc_x_pos == 32768 && thc_y_pos == 32768 && thc_rot_pos == 32768)
+			{
+				thc_x_pos = MPToPanelConnector.thc.x;
+				thc_y_pos = MPToPanelConnector.thc.y;
+				thc_rot_pos = MPToPanelConnector.thc.z;
+			}
 
-	//
-	// Direct ullage thrust
-	//
+			if (thc_voltage > SP_MIN_DCVOLTAGE) {
+				if (SCContSwitch.IsUp() && !THCRotary.IsClockwise()) {	// CMC
+					if (thc_x_pos < 16384) {
+						val31[MinusYTranslation] = 1;
+					}
+					if (thc_y_pos < 16384) {
+						val31[PlusZTranslation] = 1;
+					}
+					if (thc_x_pos > 49152) {
+						val31[PlusYTranslation] = 1;
+					}
+					if (thc_y_pos > 49152) {
+						val31[MinusZTranslation] = 1;
+					}
+					if (thc_rot_pos < 16384) {
+						val31[MinusXTranslation] = 1;
+					}
+					if (thc_rot_pos > 49152) {
+						val31[PlusXTranslation] = 1;
+					}
+				}
+				if (thc_debug != -1) {
+					sprintf(oapiDebugString(), "THC: X/Y/Z = %d / %d / %d", thc_x_pos, thc_y_pos, thc_rot_pos);
+				}
 
-	if (DirectUllageButton.GetState() == 1) {
-		if (DirectUllMnACircuitBraker.IsPowered()) {   
+				// Update ECA
+				eca.thc_x = thc_x_pos;
+				eca.thc_y = thc_rot_pos;
+				eca.thc_z = thc_y_pos;
+			}
+			else {
+				// Power off
+				eca.thc_x = 32768;
+				eca.thc_y = 32768;
+				eca.thc_z = 32768;
+			}
+			// Submit data to the AGC
+			agc.SetInputChannel(031, val31);
+		}
+
+		//
+		// IMPORTANT: The following must be the last SetRCSState calls within a time step, especially after the RJ/EC
+		// The thrusters are turned off by the RJ/EC or the direct coil handling above.
+		//
+
+		//
+		// Direct ullage thrust
+		//
+
+		if (DirectUllageButton.GetState() == 1) {
+			if (DirectUllMnACircuitBraker.IsPowered()) {
+				SetRCSState(RCS_SM_QUAD_B, 4, true);
+				SetRCSState(RCS_SM_QUAD_D, 3, true);
+			}
+			if (DirectUllMnBCircuitBraker.IsPowered()) {
+				SetRCSState(RCS_SM_QUAD_A, 4, true);
+				SetRCSState(RCS_SM_QUAD_C, 3, true);
+			}
+			if (SCSLogicBus1.Voltage() > SP_MIN_DCVOLTAGE)
+			{
+				rjec.SetDirectPitchActive(true);
+				rjec.SetDirectYawActive(true);
+			}
+		}
+
+		//SPS Abort Ullage
+		if ((secs.MESCA.FireUllage() && RCSLogicMnACircuitBraker.IsPowered()) || (secs.MESCB.FireUllage() && RCSLogicMnBCircuitBraker.IsPowered()))
+		{
 			SetRCSState(RCS_SM_QUAD_B, 4, true);
 			SetRCSState(RCS_SM_QUAD_D, 3, true);
-		}
-		if (DirectUllMnBCircuitBraker.IsPowered()) {   
-			SetRCSState(RCS_SM_QUAD_A, 4, true); 
+			SetRCSState(RCS_SM_QUAD_A, 4, true);
 			SetRCSState(RCS_SM_QUAD_C, 3, true);
-		}
-		if (SCSLogicBus1.Voltage() > SP_MIN_DCVOLTAGE)
-		{
+
 			rjec.SetDirectPitchActive(true);
 			rjec.SetDirectYawActive(true);
 		}
+
+		//SM Jettison Controller
+		bool fire = false;
+		if (secs.SMJCA && secs.SMJCA->GetFireMinusXTranslation())
+			fire = true;
+
+		if (secs.SMJCB && secs.SMJCB->GetFireMinusXTranslation())
+			fire = true;
+
+		if (fire)
+		{
+			SetRCSState(RCS_SM_QUAD_A, 3, true);
+			SetRCSState(RCS_SM_QUAD_B, 3, true);
+			SetRCSState(RCS_SM_QUAD_C, 4, true);
+			SetRCSState(RCS_SM_QUAD_D, 4, true);
+		}
+
+		fire = false;
+
+		if (secs.SMJCA && secs.SMJCA->GetFirePositiveRoll())
+			fire = true;
+
+		if (secs.SMJCB && secs.SMJCB->GetFirePositiveRoll())
+			fire = true;
+
+		if (fire)
+		{
+			SetRCSState(RCS_SM_QUAD_A, 1, true);
+			SetRCSState(RCS_SM_QUAD_B, 1, true);
+			SetRCSState(RCS_SM_QUAD_C, 1, true);
+			SetRCSState(RCS_SM_QUAD_D, 1, true);
+		}
+
+		//
+		// CM RCS propellant dump & heaters
+		//
+
+		// Manual control
+		if (secs.rcsc.GetCMRCSHeatersA())
+		{
+			SetCMRCSState(0, true);
+			SetCMRCSState(2, true);
+			SetCMRCSState(4, true);
+			SetCMRCSState(7, true);
+			SetCMRCSState(8, true);
+			SetCMRCSState(11, true);
+			CMHeater1MnACircuitBraker.DrawPower(315.0);
+		}
+		else if (secs.rcsc.GetCMRCSDumpA())
+		{
+			SetCMRCSState(2, true);
+			SetCMRCSState(4, true);
+			SetCMRCSState(7, true);
+			SetCMRCSState(8, true);
+			SetCMRCSState(11, true);
+			RCSLogicMnACircuitBraker.DrawPower(262.5);
+		}
+
+		// Manual control
+		if (secs.rcsc.GetCMRCSHeatersB())
+		{
+			SetCMRCSState(1, true);
+			SetCMRCSState(3, true);
+			SetCMRCSState(5, true);
+			SetCMRCSState(6, true);
+			SetCMRCSState(9, true);
+			SetCMRCSState(10, true);
+			CMHeater2MnBCircuitBraker.DrawPower(315.0);
+		}
+		else if (secs.rcsc.GetCMRCSDumpB())
+		{
+			SetCMRCSState(3, true);
+			SetCMRCSState(5, true);
+			SetCMRCSState(6, true);
+			SetCMRCSState(9, true);
+			SetCMRCSState(10, true);
+			RCSLogicMnBCircuitBraker.DrawPower(262.5);
+		}
 	}
-
-	//SPS Abort Ullage
-	if ((secs.MESCA.FireUllage() && RCSLogicMnACircuitBraker.IsPowered()) || (secs.MESCB.FireUllage() && RCSLogicMnBCircuitBraker.IsPowered()))
-	{
-		SetRCSState(RCS_SM_QUAD_B, 4, true);
-		SetRCSState(RCS_SM_QUAD_D, 3, true);
-		SetRCSState(RCS_SM_QUAD_A, 4, true);
-		SetRCSState(RCS_SM_QUAD_C, 3, true);
-
-		rjec.SetDirectPitchActive(true);
-		rjec.SetDirectYawActive(true);
-	}
-
-	//SM Jettison Controller
-	bool fire = false;
-	if (secs.SMJCA && secs.SMJCA->GetFireMinusXTranslation())
-		fire = true;
-
-	if (secs.SMJCB && secs.SMJCB->GetFireMinusXTranslation())
-		fire = true;
-
-	if (fire)
-	{
-		SetRCSState(RCS_SM_QUAD_A, 3, true);
-		SetRCSState(RCS_SM_QUAD_B, 3, true);
-		SetRCSState(RCS_SM_QUAD_C, 4, true);
-		SetRCSState(RCS_SM_QUAD_D, 4, true);
-	}
-
-	fire = false;
-
-	if (secs.SMJCA && secs.SMJCA->GetFirePositiveRoll())
-		fire = true;
-
-	if (secs.SMJCB && secs.SMJCB->GetFirePositiveRoll())
-		fire = true;
-
-	if (fire)
-	{
-		SetRCSState(RCS_SM_QUAD_A, 1, true);
-		SetRCSState(RCS_SM_QUAD_B, 1, true);
-		SetRCSState(RCS_SM_QUAD_C, 1, true);
-		SetRCSState(RCS_SM_QUAD_D, 1, true);
-	}
-
-	//
-	// CM RCS propellant dump & heaters
-	//
-	
-	// Manual control
-	if (secs.rcsc.GetCMRCSHeatersA())
-	{
-		SetCMRCSState(0, true);
-		SetCMRCSState(2, true);
-		SetCMRCSState(4, true);
-		SetCMRCSState(7, true);
-		SetCMRCSState(8, true);
-		SetCMRCSState(11, true);
-		CMHeater1MnACircuitBraker.DrawPower(315.0);
-	}
-	else if (secs.rcsc.GetCMRCSDumpA())
-	{
-		SetCMRCSState(2, true);	
-		SetCMRCSState(4, true);	
-		SetCMRCSState(7, true);	
-		SetCMRCSState(8, true);	
-		SetCMRCSState(11, true);
-		RCSLogicMnACircuitBraker.DrawPower(262.5);
-	}
-		
-	// Manual control
-	if (secs.rcsc.GetCMRCSHeatersB())
-	{
-		SetCMRCSState(1, true);
-		SetCMRCSState(3, true);
-		SetCMRCSState(5, true);
-		SetCMRCSState(6, true);
-		SetCMRCSState(9, true);
-		SetCMRCSState(10, true);
-		CMHeater2MnBCircuitBraker.DrawPower(315.0);
-	}
-	else if (secs.rcsc.GetCMRCSDumpB())
-	{
-		SetCMRCSState(3, true);	
-		SetCMRCSState(5, true);	
-		SetCMRCSState(6, true);	
-		SetCMRCSState(9, true);	
-		SetCMRCSState(10, true);
-		RCSLogicMnBCircuitBraker.DrawPower(262.5);
-	}
+	// [/MP]
 
 	//Code for generating heat in the CM RCS thrusters. Is this the best place for this?
 	for (int i = 0;i < 12;i++)
@@ -4146,16 +4450,50 @@ void Saturn::EnginesSoundTimestep() {
 			}
 		}		
 	}
-	// Play/stop sounds
-	if (on) {
-		if (RCSFireSound.isPlaying()) {
-			RCSSustainSound.play(LOOP);
-		} else if (!RCSSustainSound.isPlaying()) {
+	
+	// [MP]
+	if (MPToPanelConnector.getIsClient())
+	{
+		if (MPToPanelConnector.rcsSound)
 			RCSFireSound.play();
-		}				
-	} else {
-		RCSSustainSound.stop();
+		else
+			RCSFireSound.stop();
+
+		if (MPToPanelConnector.rcsSustainSound)
+			RCSSustainSound.play(LOOP);
+		else
+			RCSSustainSound.stop();
 	}
+
+	else
+	{
+		// Play/stop sounds
+		if (on) {
+			if (RCSFireSound.isPlaying()) {
+				RCSSustainSound.play(LOOP);
+			} else if (!RCSSustainSound.isPlaying()) {
+				RCSFireSound.play();
+			}				
+		} else {
+			RCSSustainSound.stop();
+		}
+
+
+		if (RCSFireSound.isPlaying() != MPToPanelConnector.rcsSound || RCSSustainSound.isPlaying() != MPToPanelConnector.rcsSustainSound)
+		{
+			MPToPanelConnector.rcsSound = RCSFireSound.isPlaying();
+			MPToPanelConnector.rcsSustainSound = RCSSustainSound.isPlaying();
+
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_RCS_SOUND_CHANGED;
+			cm.val1.bValue = MPToPanelConnector.rcsSound;
+			cm.val2.bValue = MPToPanelConnector.rcsSustainSound;
+
+			MPToPanelConnector.SendMessage(cm);
+		}
+	}
+	// [/MP]
 
 	//Main engine sound
 	THGROUP_HANDLE thg;
@@ -4205,4 +4543,189 @@ void Saturn::StartCMPEVA()
 	{
 		ToggleCMPEVA();
 	}
+}
+
+void Saturn::SyncFDAI(double simt, double simdt)
+{	
+	// HOST
+	if (!MPToPanelConnector.getIsClient())
+	{
+		bool syncOK = simt >= MPToPanelConnector.lastFdaiSync + 0.25 ? true : false;
+
+
+		if (syncOK)
+		{
+			// Sync FDAI1 Target
+			MPToPanelConnector.FDAI1 = fdaiLeft.GetTarget();
+
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Target;
+			cm.val2.dValue = MPToPanelConnector.FDAI1.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			// Sync FDAI1 Rates
+			MPToPanelConnector.FDAI1_rates = eda.GetFDAI1AttitudeRate();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_rates.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+
+			// Sync FDAI1 Errors
+			MPToPanelConnector.FDAI1_errors = eda.GetFDAI1AttitudeError();
+			
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_errors.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			// Sync FDAI2 Target
+			MPToPanelConnector.FDAI2 = fdaiRight.GetTarget();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Target;
+			cm.val2.dValue = MPToPanelConnector.FDAI2.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			MPToPanelConnector.lastFdaiSync = oapiGetSimTime();
+			
+			// Sync FDAI2 Rates
+			MPToPanelConnector.FDAI2_rates = eda.GetFDAI2AttitudeRate();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_rates.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			// Sync FDAI2 Errors
+			MPToPanelConnector.FDAI2_errors = eda.GetFDAI2AttitudeError();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_errors.z;
+
+			MPToPanelConnector.SendMessage(cm);
+		}
+	}
+
+	// CLIENT
+	else
+	{
+		// LEFT FDAI
+		if (MPToPanelConnector.Fdai1Simt1 > 0.0 && MPToPanelConnector.Fdai1Simt2 > 0.0)
+		{
+			VECTOR3 hostAtt = MPToPanelConnector.FDAI1;
+			VECTOR3 hostRate = MPToPanelConnector.dFDAI1;
+
+			// Reject NaN/inf: any comparison with NaN is false, and inf fails the bound
+			if (fabs(hostAtt.x) < 1e6 && fabs(hostAtt.y) < 1e6 && fabs(hostAtt.z) < 1e6 &&
+				fabs(hostRate.x) < 1e6 && fabs(hostRate.y) < 1e6 && fabs(hostRate.z) < 1e6)
+			{
+				// Time since the last host sample, capped so a lost sync can't run away
+				double age = simt - MPToPanelConnector.Fdai1Simt1;
+				if (age < 0.0) age = 0.0;
+				if (age > 2.0) age = 2.0;
+
+				// Where the host should be right now
+				VECTOR3 predicted = MP_Helpers::AdvanceAngles2Pi(hostAtt, hostRate * age);
+
+				VECTOR3 cur = fdaiLeft.GetTarget();
+				VECTOR3 err = MP_Helpers::AngularDifference2Pi(predicted, cur); // shortest path
+
+				// Big miss (first sync, host jumped) or our own target is NaN: snap.
+				// Written as !(<=) so a NaN length also takes the snap path.
+				if (!(length(err) <= 0.5))
+				{
+					fdaiLeft.SetTarget(predicted);
+				}
+				else
+				{
+					// Follow the host rate, plus a proportional pull on every axis
+					double k = 2.0 * simdt;       // gain of 2 per second
+					if (k > 1.0) k = 1.0;
+					VECTOR3 step = hostRate * simdt + err * k;
+					fdaiLeft.SetTarget(MP_Helpers::AdvanceAngles2Pi(cur, step));
+				}
+			}
+		}
+
+		fdaiLeft.SetRates(MPToPanelConnector.FDAI1_rates_new);
+		fdaiLeft.SetErrors(MPToPanelConnector.FDAI1_errors_new);
+
+		// RIGHT FDAI
+		if (MPToPanelConnector.Fdai2Simt1 > 0.0 && MPToPanelConnector.Fdai2Simt2 > 0.0)
+		{
+			VECTOR3 hostAtt = MPToPanelConnector.FDAI2;
+			VECTOR3 hostRate = MPToPanelConnector.dFDAI2;
+
+			if (fabs(hostAtt.x) < 1e6 && fabs(hostAtt.y) < 1e6 && fabs(hostAtt.z) < 1e6 &&
+				fabs(hostRate.x) < 1e6 && fabs(hostRate.y) < 1e6 && fabs(hostRate.z) < 1e6)
+			{
+				double age = simt - MPToPanelConnector.Fdai2Simt1;
+				if (age < 0.0) age = 0.0;
+				if (age > 2.0) age = 2.0;
+
+				VECTOR3 predicted = MP_Helpers::AdvanceAngles2Pi(hostAtt, hostRate * age);
+
+				VECTOR3 cur = fdaiRight.GetTarget();
+				VECTOR3 err = MP_Helpers::AngularDifference2Pi(predicted, cur);
+
+				if (!(length(err) <= 0.5))
+				{
+					fdaiRight.SetTarget(predicted);
+				}
+				else
+				{
+					double k = 2.0 * simdt;
+					if (k > 1.0) k = 1.0;
+					VECTOR3 step = hostRate * simdt + err * k;
+					fdaiRight.SetTarget(MP_Helpers::AdvanceAngles2Pi(cur, step));
+				}
+			}
+		}
+
+		fdaiRight.SetRates(MPToPanelConnector.FDAI2_rates_new);
+		fdaiRight.SetErrors(MPToPanelConnector.FDAI2_errors_new);
+	}
+
+	/*char bufx[16];
+	char bufy[16];
+	char bufz[16];
+
+	sprintf(bufx, "x: %.3f ", fdaiLeft.GetNow().x);
+	sprintf(bufy, "y: %.3f ", fdaiLeft.GetNow().y);
+	sprintf(bufz, "z: %.3f ", fdaiLeft.GetNow().z);
+
+	std::string x = bufx;
+	std::string y = bufy;
+	std::string z = bufz;
+
+	std::string msg = "FDAI " + x + y +z;
+	
+	oapiDebugString(msg.c_str());*/
 }

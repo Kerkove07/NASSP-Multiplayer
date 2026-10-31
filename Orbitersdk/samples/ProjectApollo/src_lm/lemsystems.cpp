@@ -24,6 +24,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * LEM SYSTEMS (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - lemsystems.cpp
+  * 
+  * Changes: added multiplayer state synchronization
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -46,6 +60,8 @@
 
 #include "papi.h"
 #include "Mission.h"
+
+#include "MPHelpers.h"
 
 void LEM::ResetThrusters()
 
@@ -1516,10 +1532,11 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	Panel2RelayBox.Timestep(simdt);
 
 	// After that come all other systems simesteps
-	agc.Timestep(MissionTime, simdt);						// Do work
+	// [MP]
+	if (!MPToPanelConnector.getIsClient()) agc.Timestep(MissionTime, simdt);						// Do work
 	dsky.Timestep(MissionTime);								// Do work
 	asa.Timestep(simdt);									// Do work
-	aea.Timestep(MissionTime, simdt);
+	if (!MPToPanelConnector.getIsClient()) aea.Timestep(MissionTime, simdt);
 	deda.Timestep(simdt);
 	imu.Timestep(simdt);								// Do work
 	tcdu.Timestep(simdt);
@@ -1540,36 +1557,50 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	ordeal.Timestep(simdt);
 	mechanicalAccelerometer.Timestep(simdt);
 
-	//Move this to panel code or wherever
-	VECTOR3 attitude;
-	if (AttitudeMonSwitch.IsUp())	//PGNS
+	//[MP] FDAI SYNC
+	//SyncFDAI(simt, simdt);
+	// HOST: FDAI
+	if (!MPToPanelConnector.getIsClient())
 	{
-		attitude = gasta.GetTotalAttitude();
-	}
-	else							//AGS
-	{
-		attitude = aea.GetTotalAttitude();
+		//Move this to panel code or wherever
+		VECTOR3 attitude;
+		if (AttitudeMonSwitch.IsUp())	//PGNS
+		{
+			attitude = gasta.GetTotalAttitude();
+		}
+		else							//AGS
+		{
+			attitude = aea.GetTotalAttitude();
+		}
+
+		// ORDEAL
+		attitude.y += ordeal.GetFDAI1PitchAngle();
+		if (attitude.y >= TWO_PI) attitude.y -= TWO_PI;
+		fdaiLeft.SetAttitude(attitude);
+		fdaiLeft.Timestep(MissionTime, simdt);
+
+		if (RightAttitudeMonSwitch.IsUp())	//PGNS
+		{
+			attitude = gasta.GetTotalAttitude();
+		}
+		else							//AGS
+		{
+			attitude = aea.GetTotalAttitude();
+		}
+		// ORDEAL
+		attitude.y += ordeal.GetFDAI2PitchAngle();
+		if (attitude.y >= TWO_PI) attitude.y -= TWO_PI;
+		fdaiRight.SetAttitude(attitude);
+		fdaiRight.Timestep(MissionTime, simdt);
 	}
 
-	// ORDEAL
-	attitude.y += ordeal.GetFDAI1PitchAngle();
-	if (attitude.y >= TWO_PI) attitude.y -= TWO_PI;
-	fdaiLeft.SetAttitude(attitude);
-	fdaiLeft.Timestep(MissionTime, simdt);
-
-	if (RightAttitudeMonSwitch.IsUp())	//PGNS
+	// Client FDAI
+	else
 	{
-		attitude = gasta.GetTotalAttitude();
+		fdaiLeft.Timestep(simt, simdt);
+		fdaiRight.Timestep(simt, simdt);
 	}
-	else							//AGS
-	{
-		attitude = aea.GetTotalAttitude();
-	}
-	// ORDEAL
-	attitude.y += ordeal.GetFDAI2PitchAngle();
-	if (attitude.y >= TWO_PI) attitude.y -= TWO_PI;
-	fdaiRight.SetAttitude(attitude);
-	fdaiRight.Timestep(MissionTime, simdt);
+	//[/MP]
 
 	MissionTimerDisplay.Timestep(MissionTime, simdt, false);
 	EventTimerDisplay.Timestep(MissionTime, simdt, false);
@@ -1596,12 +1627,16 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	scca1.Timestep(simdt);
 	scca2.Timestep(simdt);
 	scca3.Timestep(simdt);
+
+	// [MP] Disable DPS/APS/RCS logic on Client
 	DPSPropellant.Timestep(simt, simdt);
-	DPS.Timestep(simt, simdt);
+	if (!MPToPanelConnector.getIsClient()) DPS.Timestep(simt, simdt);
 	APSPropellant.Timestep(simt, simdt);
-	APS.Timestep(simdt);
-	RCSA.Timestep(simt, simdt);
-	RCSB.Timestep(simt, simdt);
+	if (!MPToPanelConnector.getIsClient()) APS.Timestep(simdt);
+	if (!MPToPanelConnector.getIsClient()) RCSA.Timestep(simt, simdt);
+	if (!MPToPanelConnector.getIsClient()) RCSB.Timestep(simt, simdt);
+	// [/MP]
+
 	tca1A.Timestep(simdt);
 	tca2A.Timestep(simdt);
 	tca3A.Timestep(simdt);
@@ -1729,7 +1764,83 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	{
 		GlycolPumpSound.stop();
 	}
-	
+
+	//[MP] SYNC THRUSTERS
+	// CLIENT: Set Max Thrust Levels to Zero
+	if (MPToPanelConnector.getIsClient())
+	{
+		if (!MPToPanelConnector.getSyncClientThrusters())
+		{
+			// LEM RCS
+			for (int i = 0; i < 16; i++)
+			{
+				if (th_rcs[i]) SetThrusterMax0(th_rcs[i], 0.0);
+			}
+
+			// LEM DUST
+			for (int i = 0; i < 4; i++)
+			{
+				if (th_dust[i]) SetThrusterMax0(th_dust[i], 0.0);
+			}
+
+			// DPS/APS
+			if (th_hover[0]) SetThrusterMax0(th_hover[0], 0.0);
+
+			MPToPanelConnector.setSyncClientThrusters(true);
+		}
+
+		// Sync Thrust Levels from Server
+		else
+		{
+			// LEM RCS
+			for (int i = 0; i < 16; i++)
+			{
+				if (th_rcs[i]) SetThrusterLevel(th_rcs[i], MPToPanelConnector.lem_thrusters.th_rcs[i]);
+			}
+
+			// LEM DUST
+			for (int i = 0; i < 4; i++)
+			{
+				if (th_dust[i]) SetThrusterLevel(th_dust[i], MPToPanelConnector.lem_thrusters.th_dust[i]);
+			}
+
+			// DPS/APS
+			if (th_hover[0]) SetThrusterLevel(th_hover[0], MPToPanelConnector.lem_thrusters.th_hover[0]);
+		}
+	}
+
+	// HOST: Send Thruster Levels to Client
+	else
+	{
+		// LEM RCS
+		for (int i = 0; i < 16; i++)
+		{
+			if (th_rcs[i] && GetThrusterLevel(th_rcs[i]) != MPToPanelConnector.lem_thrusters.th_rcs[i])
+			{
+				MPToPanelConnector.lem_thrusters.th_rcs[i] = GetThrusterLevel(th_rcs[i]);
+				MPToPanelConnector.SendThruster("th_rcs", i, MPToPanelConnector.lem_thrusters.th_rcs[i]);
+			}
+		}
+
+		// LEM DUST
+		for (int i = 0; i < 4; i++)
+		{
+			if (th_dust[i] && GetThrusterLevel(th_dust[i]) != MPToPanelConnector.lem_thrusters.th_dust[i])
+			{
+				MPToPanelConnector.lem_thrusters.th_dust[i] = GetThrusterLevel(th_dust[i]);
+				MPToPanelConnector.SendThruster("th_dust", i, MPToPanelConnector.lem_thrusters.th_dust[i]);
+			}
+		}
+
+		// DPS/APS
+		if (th_hover[0] && GetThrusterLevel(th_hover[0]) != MPToPanelConnector.lem_thrusters.th_hover[0])
+		{
+			MPToPanelConnector.lem_thrusters.th_hover[0] = GetThrusterLevel(th_hover[0]);
+			MPToPanelConnector.SendThruster("th_hover", 0, MPToPanelConnector.lem_thrusters.th_hover[0]);
+		}
+	}
+	// [/MP]
+
 	/*
 	// Debug tests //
 
@@ -2287,7 +2398,7 @@ void LEM::SystemsTimestep(double simt, double simdt)
 
 	sprintf(oapiDebugString(), "Mass: %lf VapMass: %.5f Temp: %.3f Press %.3f Flow %.5f Max %.5f PVlv %d Crew %d", *PLSSH2OMass, *PLSSH2OVapMass, KelvinToFahrenheit(*PLSSH2OTemp), *PLSSH2OPress *PSI, *DrinkPipeFlow, *DrinkPipeFlowmax, *PLSSH2OLeakVlv, *NumCrew);
 	sprintf(oapiDebugString(), "Mass: %.3f CABFlow %.5f CABMax %.5f CABPVlv %d CDRFlow %.5f CDRMax %.5f CDRPVlv %d LMPFlow %.5f LMPMax %.5f LMPPVlv %d", *PLSSH2OMass, *DrinkPipeFlow, *DrinkPipeFlowmax, *PLSSH2OLeakVlv, *CDRDrinkPipeFlow, *CDRDrinkPipeFlowmax, *CDRPLSSH2OLeakVlv, *LMPDrinkPipeFlow, *LMPDrinkPipeFlowmax, *LMPPLSSH2OLeakVlv);
-	*/
+	*/	
 }
 
 void LEM::SetPipeMaxFlow(char *pipe, double flow) {
@@ -3501,4 +3612,189 @@ void CrossPointer::SaveState(FILEHANDLE scn, char *line_str)
 void CrossPointer::LoadState(char *line)
 {
 	sscanf(line + 17, "%lf %lf", &display_vel_x, &display_vel_y);
+}
+
+void LEM::SyncFDAI(double simt, double simdt)
+{
+	// HOST
+	if (!MPToPanelConnector.getIsClient())
+	{
+		bool syncOK = simt >= MPToPanelConnector.lastFdaiSync + 0.25 ? true : false;
+
+
+		if (syncOK)
+		{
+			// Sync FDAI1 Target
+			MPToPanelConnector.FDAI1 = fdaiLeft.GetTarget();
+
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Target;
+			cm.val2.dValue = MPToPanelConnector.FDAI1.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			// Sync FDAI1 Rates
+			MPToPanelConnector.FDAI1_rates = fdaiLeft.GetRates();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_rates.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+
+			// Sync FDAI1 Errors
+			MPToPanelConnector.FDAI1_errors = fdaiLeft.GetErrors();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_errors.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			// Sync FDAI2 Target
+			MPToPanelConnector.FDAI2 = fdaiRight.GetTarget();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Target;
+			cm.val2.dValue = MPToPanelConnector.FDAI2.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			MPToPanelConnector.lastFdaiSync = oapiGetSimTime();
+
+			// Sync FDAI2 Rates
+			MPToPanelConnector.FDAI2_rates = fdaiRight.GetRates();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_rates.z;
+
+			MPToPanelConnector.SendMessage(cm);
+
+			// Sync FDAI2 Errors
+			MPToPanelConnector.FDAI2_errors = fdaiRight.GetErrors();
+
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
+			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_errors.z;
+
+			MPToPanelConnector.SendMessage(cm);
+		}
+	}
+
+	// CLIENT
+	else
+	{
+		// LEFT FDAI
+		if (MPToPanelConnector.Fdai1Simt1 > 0.0 && MPToPanelConnector.Fdai1Simt2 > 0.0)
+		{
+			VECTOR3 hostAtt = MPToPanelConnector.FDAI1;
+			VECTOR3 hostRate = MPToPanelConnector.dFDAI1;
+
+			// Reject NaN/inf: any comparison with NaN is false, and inf fails the bound
+			if (fabs(hostAtt.x) < 1e6 && fabs(hostAtt.y) < 1e6 && fabs(hostAtt.z) < 1e6 &&
+				fabs(hostRate.x) < 1e6 && fabs(hostRate.y) < 1e6 && fabs(hostRate.z) < 1e6)
+			{
+				// Time since the last host sample, capped so a lost sync can't run away
+				double age = simt - MPToPanelConnector.Fdai1Simt1;
+				if (age < 0.0) age = 0.0;
+				if (age > 2.0) age = 2.0;
+
+				// Where the host should be right now
+				VECTOR3 predicted = MP_Helpers::AdvanceAngles2Pi(hostAtt, hostRate * age);
+
+				VECTOR3 cur = fdaiLeft.GetTarget();
+				VECTOR3 err = MP_Helpers::AngularDifference2Pi(predicted, cur); // shortest path
+
+				// Big miss (first sync, host jumped) or our own target is NaN: snap.
+				// Written as !(<=) so a NaN length also takes the snap path.
+				if (!(length(err) <= 0.5))
+				{
+					fdaiLeft.SetTarget(predicted);
+				}
+				else
+				{
+					// Follow the host rate, plus a proportional pull on every axis
+					double k = 2.0 * simdt;       // gain of 2 per second
+					if (k > 1.0) k = 1.0;
+					VECTOR3 step = hostRate * simdt + err * k;
+					fdaiLeft.SetTarget(MP_Helpers::AdvanceAngles2Pi(cur, step));
+				}
+			}
+		}
+
+		fdaiLeft.SetRates(MPToPanelConnector.FDAI1_rates_new);
+		fdaiLeft.SetErrors(MPToPanelConnector.FDAI1_errors_new);
+
+		// RIGHT FDAI
+		if (MPToPanelConnector.Fdai2Simt1 > 0.0 && MPToPanelConnector.Fdai2Simt2 > 0.0)
+		{
+			VECTOR3 hostAtt = MPToPanelConnector.FDAI2;
+			VECTOR3 hostRate = MPToPanelConnector.dFDAI2;
+
+			if (fabs(hostAtt.x) < 1e6 && fabs(hostAtt.y) < 1e6 && fabs(hostAtt.z) < 1e6 &&
+				fabs(hostRate.x) < 1e6 && fabs(hostRate.y) < 1e6 && fabs(hostRate.z) < 1e6)
+			{
+				double age = simt - MPToPanelConnector.Fdai2Simt1;
+				if (age < 0.0) age = 0.0;
+				if (age > 2.0) age = 2.0;
+
+				VECTOR3 predicted = MP_Helpers::AdvanceAngles2Pi(hostAtt, hostRate * age);
+
+				VECTOR3 cur = fdaiRight.GetTarget();
+				VECTOR3 err = MP_Helpers::AngularDifference2Pi(predicted, cur);
+
+				if (!(length(err) <= 0.5))
+				{
+					fdaiRight.SetTarget(predicted);
+				}
+				else
+				{
+					double k = 2.0 * simdt;
+					if (k > 1.0) k = 1.0;
+					VECTOR3 step = hostRate * simdt + err * k;
+					fdaiRight.SetTarget(MP_Helpers::AdvanceAngles2Pi(cur, step));
+				}
+			}
+		}
+
+		fdaiRight.SetRates(MPToPanelConnector.FDAI2_rates_new);
+		fdaiRight.SetErrors(MPToPanelConnector.FDAI2_errors_new);
+	}
+
+	/*char bufx[16];
+	char bufy[16];
+	char bufz[16];
+
+	sprintf(bufx, "x: %.3f ", fdaiLeft.GetNow().x);
+	sprintf(bufy, "y: %.3f ", fdaiLeft.GetNow().y);
+	sprintf(bufz, "z: %.3f ", fdaiLeft.GetNow().z);
+
+	std::string x = bufx;
+	std::string y = bufy;
+	std::string z = bufz;
+
+	std::string msg = "FDAI " + x + y +z;
+
+	oapiDebugString(msg.c_str());*/
 }

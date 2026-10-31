@@ -25,6 +25,8 @@
 #if !defined(_PA_CAUTIONWARNING_H)
 #define _PA_CAUTIONWARNING_H
 
+#include "soundlib.h"
+
 ///
 /// \ingroup InternalSystemsState
 /// \brief CWS light test.

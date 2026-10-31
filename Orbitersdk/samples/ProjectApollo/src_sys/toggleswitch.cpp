@@ -25,6 +25,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * TOGGLE SWITCH HANDLING CODE (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - toggleswitch.cpp
+  * 
+  * Changes: added multiplayer state synchronization
+  *		     (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 
@@ -41,6 +55,11 @@
 #include "checklistController.h"
 
 #include "tracer.h"
+
+#include "saturn.h"
+#include "lem.h"
+
+#include "MPhelpers.h"
 
 //
 // Generic panel switch item.
@@ -108,6 +127,13 @@ int PanelSwitchItem::GetState()
 
 	return FailedState;
 }
+
+// [MP]
+int PanelSwitchItem::GetGuardState()
+{
+	return guardState;
+}
+// [/MP]
 
 void PanelSwitchItem::SetState(int value)
 
@@ -1758,10 +1784,14 @@ GuardedToggleSwitch::GuardedToggleSwitch() {
 GuardedToggleSwitch::~GuardedToggleSwitch() {
 }
 
-void GuardedToggleSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, int springloaded) 
+void GuardedToggleSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, int springloaded, MP_PanelConnector* MPToPanelConnector)
 {
 	ToggleSwitch::Register(scnh, n, defaultState, springloaded, 0);
 	guardState = defaultGuardState;
+
+	// [MP]
+	pConn = MPToPanelConnector;
+	// [/MP]
 }
 
 void GuardedToggleSwitch::InitGuard(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf,
@@ -1850,7 +1880,8 @@ void GuardedToggleSwitch::Guard() {
 			if (springLoaded == SPRINGLOADEDSWITCH_UP)     SwitchTo(TOGGLESWITCH_UP,true);
 		}
 
-	} 
+	}
+	//[/MP]
 }
 
 bool GuardedToggleSwitch::CheckMouseClick(int event, int mx, int my) {
@@ -1867,6 +1898,20 @@ bool GuardedToggleSwitch::CheckMouseClick(int event, int mx, int my) {
 				guardState = 1;
 			}
 			guardClick.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)name;
+			cm.val2.iValue = state;
+			cm.val3.bValue = guardState;
+			cm.val4.bValue = false;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			//[/MP]
+
 			return true;
 		}
 	}
@@ -1982,10 +2027,12 @@ void GuardedPushSwitch::Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURF
 	TwoPositionSwitch::Init(xp, yp, w, h, surf, bsurf, row, xoffset, yoffset);
 }
 
-void GuardedPushSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState) {
+void GuardedPushSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, MP_PanelConnector* MPToPanelConnector) {
 
 	PushSwitch::Register(scnh, n, defaultState, 0);
 	guardState = defaultGuardState;
+
+	pConn = MPToPanelConnector;
 }
 
 void GuardedPushSwitch::InitGuard(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf,
@@ -2118,7 +2165,22 @@ bool GuardedPushSwitch::CheckMouseClick(int event, int mx, int my)
 			else {
 				guardState = 1;
 			}
+
 			guardClick.play();
+			
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)name;
+			cm.val2.iValue = state;
+			cm.val3.bValue = guardState;
+			cm.val4.bValue = false;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			//[/MP]
+
 			return true;
 		}
 	}
@@ -2141,6 +2203,20 @@ bool GuardedPushSwitch::CheckMouseClickVC(int event, VECTOR3 &p) {
 			guardState = 1;
 		}
 		guardClick.play();
+
+		// [MP]
+		ConnectorMessage cm;
+		cm.destination = MP_PANEL_INTERFACE;
+		cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+		cm.val1.pValue = (void*)name;
+		cm.val2.iValue = state;
+		cm.val3.bValue = guardState;
+		cm.val4.bValue = false;
+
+		if (pConn)
+			pConn->SendMessage(cm);
+		//[/MP]
+
 		return true;
 
 	}
@@ -2197,10 +2273,14 @@ GuardedThreePosSwitch::~GuardedThreePosSwitch() {
 }
 
 void GuardedThreePosSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, 
-									 int springloaded) 
+									 int springloaded, MP_PanelConnector* MPToPanelConnector)
 {
 	ThreePosSwitch::Register(scnh, n, defaultState, springloaded, 0);
 	guardState = defaultGuardState;
+
+	// [MP]
+	pConn = MPToPanelConnector;
+	// [/MP]
 }
 
 void GuardedThreePosSwitch::InitGuard(int xp, int yp, int w, int h, SURFHANDLE surf, 
@@ -2333,6 +2413,20 @@ bool GuardedThreePosSwitch::CheckMouseClick(int event, int mx, int my) {
 				guardState = 1;
 			}
 			guardClick.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)name;
+			cm.val2.iValue = state;
+			cm.val3.bValue = guardState;
+			cm.val4.bValue = false;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			//[/MP]
+
 			return true;
 		}
 	} else if (event & (PANEL_MOUSE_LBDOWN | PANEL_MOUSE_LBUP)) {
@@ -2405,7 +2499,7 @@ ContinuousSwitch::~ContinuousSwitch()
 		delete pswitchrot;
 }
 
-void ContinuousSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultVal, double minVal, double maxVal)
+void ContinuousSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultVal, double minVal, double maxVal, MP_PanelConnector* MPToPanelConnector) // [MP]
 {
 	//defaultValue: default display value (e.g. 0°)
 	//minValue: minimum displayed value (e.g. -4°)
@@ -2420,6 +2514,10 @@ void ContinuousSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, doubl
 	name = n;
 	SetValue(DisplayToAngle(defaultVal));
 	scnh.RegisterSwitch(this);
+
+	// [MP]
+	pConn = MPToPanelConnector;
+	// [/MP]
 }
 
 void ContinuousSwitch::Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf, SwitchRow &row)
@@ -2488,6 +2586,18 @@ bool ContinuousSwitch::SwitchTo(double newPosition)
 	{
 		//Play sound
 		if (sclick.isValid()) sclick.play();
+
+		// [MP]
+		ConnectorMessage mp;
+		mp.destination = MP_PANEL_INTERFACE;
+		mp.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+		mp.val1.pValue = (void*)name;
+		mp.val2.iValue = GetState();
+
+		if (pConn)
+			pConn->SendMessage(mp);
+		// [/MP]
+
 		return true;
 	}
 	return false;
@@ -2613,9 +2723,9 @@ ContinuousThumbwheelSwitch::~ContinuousThumbwheelSwitch()
 
 }
 
-void ContinuousThumbwheelSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultValue, double minValue, double maxValue, double clickIncr, bool horizontal)
+void ContinuousThumbwheelSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultValue, double minValue, double maxValue, double clickIncr, bool horizontal, MP_PanelConnector* MPToPanelConnector) // [MP]
 {
-	ContinuousSwitch::Register(scnh, n, defaultValue, minValue, maxValue);
+	ContinuousSwitch::Register(scnh, n, defaultValue, minValue, maxValue, MPToPanelConnector);
 
 	isHorizontal = horizontal;
 	clickIncrement = clickIncr * abs(slope); //clickIncrement in units of actual state 0.0-1.0
@@ -2698,6 +2808,7 @@ bool ContinuousThumbwheelSwitch::CheckMouseClick(int event, int mx, int my)
 		{
 			SwitchTo(state - incr);
 		}
+
 	}
 
 	return true;
@@ -2730,6 +2841,7 @@ bool ContinuousThumbwheelSwitch::CheckMouseClickVC(int event, VECTOR3 &p)
 		{
 			SwitchTo(state - incr);
 		}
+
 	}
 
 	return true;
@@ -2829,12 +2941,25 @@ bool ContinuousRotationalSwitch::CheckMouseClick(int event, int mx, int my)
 		px = ((double)(mx - x)) / ((double)(width));
 
 		ChangeSwitchState(px);
+
 		return true;
 	}
 	else if (event & PANEL_MOUSE_LBUP && mouseDown)
 	{
 		//Stop
 		mouseDown = false;
+
+		// [MP]
+		ConnectorMessage mp;
+		mp.destination = MP_PANEL_INTERFACE;
+		mp.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+		mp.val1.pValue = (void*)name;
+		mp.val2.iValue = GetState();
+
+		if (pConn)
+			pConn->SendMessage(mp);
+		// [/MP]
+
 		return false;
 	}
 	return false;
@@ -2856,6 +2981,18 @@ bool ContinuousRotationalSwitch::CheckMouseClickVC(int event, VECTOR3 &p)
 	{
 		//Stop
 		mouseDown = false;
+
+		// [MP]
+		ConnectorMessage mp;
+		mp.destination = MP_PANEL_INTERFACE;
+		mp.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+		mp.val1.pValue = (void*)name;
+		mp.val2.iValue = GetState();
+
+		if (pConn)
+			pConn->SendMessage(mp);
+		// [/MP]
+
 		return false;
 	}
 	return true;
@@ -3455,19 +3592,22 @@ ThumbwheelSwitch::~ThumbwheelSwitch() {
 		delete pswitchrot;
 }
 
-void ThumbwheelSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState) {
+// [MP]
+void ThumbwheelSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState, MP_PanelConnector* MPToPanelConnector) {
 
-	Register(scnh, n, defaultState, maximumState, false);
+	Register(scnh, n, defaultState, maximumState, false, MPToPanelConnector);
 }
 
-void ThumbwheelSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState, bool horizontal) {
+void ThumbwheelSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState, bool horizontal, MP_PanelConnector* MPToPanelConnector) {
 
 	name = n;
 	state = defaultState;
 	maxState = maximumState;
 	isHorizontal = horizontal;
 	scnh.RegisterSwitch(this);
+	pConn = MPToPanelConnector;
 }
+// [/MP]
 
 void ThumbwheelSwitch::Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf, SwitchRow &row) {
 
@@ -3518,12 +3658,34 @@ bool ThumbwheelSwitch::CheckMouseClick(int event, int mx, int my) {
 				if (state < maxState) {
 					SwitchTo(state + 1);
 					sclick.play();
+
+					// [MP]
+					ConnectorMessage cm;
+					cm.destination = MP_PANEL_INTERFACE;
+					cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+					cm.val1.pValue = name;
+					cm.val2.iValue = state;
+
+					if (pConn)
+						pConn->SendMessage(cm);
+					// [/MP]
 				}
 			}
 			else {
 				if (state > 0) {
 					SwitchTo(state - 1);
 					sclick.play();
+
+					// [MP]
+					ConnectorMessage cm;
+					cm.destination = MP_PANEL_INTERFACE;
+					cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+					cm.val1.pValue = name;
+					cm.val2.iValue = state;
+
+					if (pConn)
+						pConn->SendMessage(cm);
+					// [/MP]
 				}
 			}
 		} else {
@@ -3531,12 +3693,34 @@ bool ThumbwheelSwitch::CheckMouseClick(int event, int mx, int my) {
 				if (state < maxState) {
 					SwitchTo(state + 1);
 					sclick.play();
+
+					// [MP]
+					ConnectorMessage cm;
+					cm.destination = MP_PANEL_INTERFACE;
+					cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+					cm.val1.pValue = name;
+					cm.val2.iValue = state;
+
+					if (pConn)
+						pConn->SendMessage(cm);
+					// [/MP]
 				}
 			}
 			else {
 				if (state > 0) {
 					SwitchTo(state - 1);
 					sclick.play();
+
+					// [MP]
+					ConnectorMessage cm;
+					cm.destination = MP_PANEL_INTERFACE;
+					cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+					cm.val1.pValue = name;
+					cm.val2.iValue = state;
+
+					if (pConn)
+						pConn->SendMessage(cm);
+					// [/MP]
 				}
 			}
 		}
@@ -3586,12 +3770,34 @@ bool ThumbwheelSwitch::CheckMouseClickVC(int event, VECTOR3 &p) {
 		if (state < maxState) {
 			SwitchTo(state + 1);
 			sclick.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = name;
+			cm.val2.iValue = state;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
 		}
 	}
 	else {
 		if (state > 0) {
 			SwitchTo(state - 1);
 			sclick.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = name;
+			cm.val2.iValue = state;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
 		}
 	}
 
@@ -3886,12 +4092,13 @@ MeterSwitch::MeterSwitch() {
 MeterSwitch::~MeterSwitch() {
 }
 
-void MeterSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time) {
+void MeterSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time, MP_PanelConnector* MPToPanelConnector) { // [MP]
 
-	Register(scnh, n, min, max, time, min);
+	Register(scnh, n, min, max, time, min, MPToPanelConnector); // [MP]
+
 }
 
-void MeterSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time, double defaultValue) {
+void MeterSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time, double defaultValue, MP_PanelConnector* MPToPanelConnector) { // [MP]
 
 	name = n;
 	value = defaultValue;
@@ -3900,6 +4107,10 @@ void MeterSwitch::Register(PanelSwitchScenarioHandler &scnh, char *n, double min
 	maxValue = max;
 	minMaxTime = time;
 	scnh.RegisterSwitch(this);
+
+	// [MP]
+	pConn = MPToPanelConnector;
+	// [/MP]
 }
 
 void MeterSwitch::Init(SwitchRow &row) {
@@ -5621,6 +5832,284 @@ bool PanelConnector::ReceiveMessage(Connector *from, ConnectorMessage &m)
 
 	return false;
 }
+
+// [MP]
+// MP Panel Connector
+MP_PanelConnector::MP_PanelConnector(PanelSwitches& p, Saturn* pSat) : panel(p), sat(pSat)
+{
+	type = MP_PANEL_INTERFACE;
+	rhc = { 32768, 32768, 32768 };
+	thc = { 32768, 32768, 32768 };
+	lem = nullptr;
+}
+
+MP_PanelConnector::MP_PanelConnector(PanelSwitches& p, LEM* pLem) : panel(p), lem(pLem)
+{
+	type = MP_PANEL_INTERFACE;
+	rhc = { 32768, 32768, 32768 };
+	thc = { 32768, 32768, 32768 };
+	sat = nullptr;
+}
+
+MP_PanelConnector::~MP_PanelConnector()
+{
+}
+
+bool MP_PanelConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
+{
+	
+	//
+	// Sanity check.
+	//
+
+	if (m.destination != type)
+	{
+		return false;
+	}
+
+	MP_PanelConnectorMessageType messageType;
+
+	messageType = (MP_PanelConnectorMessageType)m.messageType;
+
+	switch (messageType)
+	{
+		case MP_PANEL_FLASH_ITEM:
+			m.val1.bValue = panel.SetFlashing(static_cast<char*>(m.val1.pValue), m.val2.bValue);
+			return true;
+
+		case MP_PANEL_GET_ITEM_STATE:
+			m.val1.iValue = panel.GetState(static_cast<char*>(m.val1.pValue));
+			return true;
+
+		case MP_PANEL_SET_ITEM_STATE:
+			if (!strcmp((char*)m.val1.pValue, "EMSDvSetSwitch"))
+			{
+				EMSDvSetSwitch = m.val2.iValue;
+				m.val1.bValue = true;
+				return true;
+			}
+			else if (!strcmp((char*)m.val1.pValue, "EMSDvDisplay"))
+			{
+				EMSDvVoltage = m.val2.iValue / 1000.;
+				m.val1.bValue = true;
+				return true;
+			}
+
+			m.val1.bValue = panel.SetState(static_cast<char*>(m.val1.pValue), m.val2.iValue, !m.val3.bValue, m.val4.bValue);
+			return true;
+
+		case MP_PANEL_SET_IS_CLIENT:
+			isClient = m.val1.bValue;
+			if (sat) mtOffset = sat->GetMissionTime() - oapiGetSimTime();
+			if (lem) mtOffset = lem->GetMissionTime() - oapiGetSimTime();
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_GET_MISSION_TIME:
+			if (sat)
+				m.val1.dValue = sat->GetMissionTime();
+			if (lem)
+				m.val1.dValue = lem->GetMissionTime();
+			return true;
+
+		case MP_PANEL_SET_MISSION_TIME:
+			if (sat)
+				sat->SetMissionTime(m.val1.dValue);
+			if (lem)
+				lem->SetMissionTime(m.val1.dValue);
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SYNC_MISSION_TIME:
+			timeToSync = oapiGetSimTime() + 1.;	// Sync Mission timer 1 second from now
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SET_FDAI:
+		{
+			MP_FdaiType type = (MP_FdaiType)m.val1.iValue;
+			VECTOR3 values = { m.val2.dValue, m.val3.dValue, m.val4.dValue };
+
+			switch (type)
+			{
+			case FDAI1_Target: MP_Helpers::UpdateFdaiSample(values, FDAI1, FDAI1_last, dFDAI1, Fdai1Simt1, Fdai1Simt2); break;
+			case FDAI2_Target: MP_Helpers::UpdateFdaiSample(values, FDAI2, FDAI2_last, dFDAI2, Fdai2Simt1, Fdai2Simt2); break;
+			case FDAI1_Rates:
+				FDAI1_rates_new = values;
+				//oapiDebugString("RECEVIED FDAI1 RATES");
+				break;
+			case FDAI1_Errors: FDAI1_errors_new = values; break;
+			case FDAI2_Rates:  FDAI2_rates_new = values; break;   // was FDAI1_*
+			case FDAI2_Errors: FDAI2_errors_new = values; break;   // was FDAI1_*
+			}
+
+			m.val1.bValue = true;
+			return true;
+		}
+
+		case MP_PANEL_SET_RHC:
+			rhc.x = m.val1.iValue;
+			rhc.y = m.val2.iValue;
+			rhc.z = m.val3.iValue;
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SET_THC:
+			thc.x = m.val1.iValue;
+			thc.y = m.val2.iValue;
+			thc.z = m.val3.iValue;
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SET_RCS_SOUND:
+			rcsSound = m.val1.bValue;
+			rcsSustainSound = m.val2.bValue;
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SET_THRUSTER:		
+			// SAT
+			if (!strcmp((char*)m.val1.pValue, "th_rcs_a"))
+			{
+				sat_thrusters.th_rcs_a[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_rcs_b"))
+			{
+				sat_thrusters.th_rcs_b[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_rcs_c"))
+			{
+				sat_thrusters.th_rcs_c[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_rcs_d"))
+			{
+				sat_thrusters.th_rcs_d[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_att_cm"))
+			{
+				sat_thrusters.th_att_cm[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_sps"))
+			{
+				sat_thrusters.th_sps[m.val2.iValue] = m.val3.dValue;
+			}
+
+			// LEM
+			if (!strcmp((char*)m.val1.pValue, "th_rcs"))
+			{
+				lem_thrusters.th_rcs[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_dust"))
+			{
+				lem_thrusters.th_dust[m.val2.iValue] = m.val3.dValue;
+			}
+			if (!strcmp((char*)m.val1.pValue, "th_hover"))
+			{
+				lem_thrusters.th_hover[m.val2.iValue] = m.val3.dValue;
+			}
+
+			return true;
+
+		case MP_PANEL_SET_LANDED:
+			landedState = m.val1.bValue;
+			return true;
+	}
+
+	return false;
+}
+
+bool MP_PanelConnector::getIsClient()
+{
+	return isClient;
+}
+
+bool MP_PanelConnector::getSyncClient()
+{
+	return syncClient;
+}
+
+void MP_PanelConnector::setSyncClient(bool sync)
+{
+	syncClient = sync;
+
+	ConnectorMessage cm;
+	cm.destination = MP_PANEL_INTERFACE;
+	cm.messageType = MP_PANEL_SIVB_SEPARATED;
+	cm.val1.bValue = sync;
+
+	if (SendMessage(cm))
+	{
+		return;
+	}
+}
+
+bool MP_PanelConnector::getSyncRhc()
+{
+	return syncRhc;
+}
+
+void MP_PanelConnector::setSyncRhc(bool sync)
+{
+	syncRhc = sync;
+}
+
+bool MP_PanelConnector::getSyncThc()
+{
+	return syncThc;
+}
+
+void MP_PanelConnector::setSyncThc(bool sync)
+{
+	syncThc = sync;
+}
+
+bool MP_PanelConnector::getSyncClientThrusters()
+{
+	return syncClientThrusters;
+}
+
+void MP_PanelConnector::setSyncClientThrusters(bool sync)
+{
+	syncClientThrusters = sync;
+}
+
+void MP_PanelConnector::setLandedState(bool state)
+{
+	landedState = state;
+}
+
+bool MP_PanelConnector::getLandedState()
+{
+	return landedState;
+}
+
+double MP_PanelConnector::GetSyncTime()
+{
+	return timeToSync;
+}
+
+double MP_PanelConnector::GetMissionTime()
+{
+	timeToSync = oapiGetSimTime() + 999999999999.;
+	return mtOffset + oapiGetSimTime();
+}
+
+bool MP_PanelConnector::SendThruster(const char* name, int index, double value)
+{
+	ConnectorMessage cm;
+	cm.destination = MP_PANEL_INTERFACE;
+	cm.messageType = MP_PANEL_THRUSTER_CHANGED;
+	cm.val1.pValue = (void*)name;
+	cm.val2.iValue = index;
+	cm.val3.dValue = value;
+	
+	if (SendMessage(cm))
+		return true;
+
+	return false;
+}
+
+// [/MP]
 
 void MasterAlarmSwitch::SetState(int value) {
 

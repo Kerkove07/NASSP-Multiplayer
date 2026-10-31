@@ -23,6 +23,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN GENERIC CLASS (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - saturn.h
+  * 
+  * Changes: added SetMissionTime & SyncFDAI
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #if !defined(_PA_SATURN_H)
 #define _PA_SATURN_H
 
@@ -996,6 +1010,11 @@ public:
 	/// \return Current time
 	///
 	double GetMissionTime() { return MissionTime; };
+
+	// [MP]
+	void SetMissionTime(double mt) { MissionTime = mt; };
+	void SyncFDAI(double simt, double simdt);
+	// [/MP]
 
 	virtual double GetFirstStageThrust();
 	virtual double GetSIIFuelTankPressurePSI() { return 0.0; }
@@ -4642,6 +4661,12 @@ protected:
 	/// \brief MFD to panel connector.
 	///
 	PanelConnector MFDToPanelConnector;
+
+	// [MULTIPLAYER]
+	// Multiplayer Panel Connector
+	MP_PanelConnector MPToPanelConnector;
+	// Multiplayer DSKY Connector
+	MP_DskyConnector* MPToDskyConnector;
 
 	///
 	/// \brief Connector from CSM to IU.

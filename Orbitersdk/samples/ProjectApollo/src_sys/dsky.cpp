@@ -133,6 +133,20 @@
   *	
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN DSKY (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - dsky.cpp
+  * 
+  * Changes: added multiplayer state synchronization
+  *		     (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -143,6 +157,7 @@
 #include "nasspsound.h"
 
 #include "apolloguidance.h"
+#include "connector.h"
 #include "dsky.h"
 #include "ioChannels.h"
 
@@ -153,7 +168,10 @@ static char SixSpace[] = "      ";
 
 static int SegmentCount[] = {6, 2, 5, 5, 4, 5, 6, 3, 7, 5 };
 
-DSKY::DSKY(SoundLib &s, ApolloGuidance &computer, PanelSDK& p, int IOChannel) : soundlib(s), agc(computer),
+DSKY::DSKY(SoundLib& s, ApolloGuidance& computer, PanelSDK& p, int IOChannel) : soundlib(s), agc(computer), 
+// [Multiplayer]
+MPToDskyConnector(*this),
+// [/Multiplayer]
 Variable_250VAC_Output("Variable 250VAC DSKY Transformer", 0.0, 250.0, true)
 
 {
@@ -244,6 +262,336 @@ bool DSKY::IsSegmentPowered() {
 	return true;
 }
 
+//[MP]
+void DSKY::MP_SetLight(MP_DskyConnector::DskyLightType light, bool state)
+{
+	switch (light)
+	{
+	case MP_DskyConnector::COMP_ACTY:
+		CompActy = state;
+		return;
+	case MP_DskyConnector::UPLINK:
+		UplinkLight = state;
+		return;
+	case MP_DskyConnector::NO_ATT:
+		NoAttLight = state;
+		return;
+	case MP_DskyConnector::STBY:
+		StbyLight = state;
+		return;
+	case MP_DskyConnector::KB_REL:
+		KbRelLight = state;
+		return;
+	case MP_DskyConnector::OPR_ERR:
+		OprErrLight = state;
+		return;
+	case MP_DskyConnector::TEMP:
+		TempLight = state;
+		return;
+	case MP_DskyConnector::GIM_LOCK:
+		GimbalLockLight = state;
+		return;
+	case MP_DskyConnector::PROG:
+		ProgLight = state;
+		return;
+	case MP_DskyConnector::RESTART:
+		RestartLight = state;
+		return;
+	case MP_DskyConnector::TRACKER:
+		TrackerLight = state;
+		return;
+	case MP_DskyConnector::VEL:
+		VelLight = state;
+		return;
+	case MP_DskyConnector::ALT:
+		AltLight = state;
+		return;
+	case MP_DskyConnector::PRIO_DISP:
+		PrioDispLight = state;
+		return;
+	case MP_DskyConnector::NO_DAP:
+		NoDAPLight = state;
+		return;
+	}
+}
+
+bool DSKY::MP_GetLight(MP_DskyConnector::DskyLightType light)
+{
+	switch (light)
+	{
+	case MP_DskyConnector::COMP_ACTY:
+		return CompActy;
+	case MP_DskyConnector::UPLINK:
+		return UplinkLight;
+	case MP_DskyConnector::NO_ATT:
+		return NoAttLight;
+	case MP_DskyConnector::STBY:
+		return StbyLight;
+	case MP_DskyConnector::KB_REL:
+		return KbRelLight;
+	case MP_DskyConnector::OPR_ERR:
+		return OprErrLight;
+	case MP_DskyConnector::TEMP:
+		return TempLight;
+	case MP_DskyConnector::GIM_LOCK:
+		return GimbalLockLight;
+	case MP_DskyConnector::PROG:
+		return ProgLight;
+	case MP_DskyConnector::RESTART:
+		return RestartLight;
+	case MP_DskyConnector::TRACKER:
+		return TrackerLight;
+	case MP_DskyConnector::VEL:
+		return VelLight;
+	case MP_DskyConnector::ALT:
+		return AltLight;
+	case MP_DskyConnector::PRIO_DISP:
+		return PrioDispLight;
+	case MP_DskyConnector::NO_DAP:
+		return NoDAPLight;
+	}
+
+	return false;
+}
+
+
+
+bool DSKY::MP_SendDSKYLightMessage(MP_DskyConnector::DskyLightType type, bool state)
+{
+	ConnectorMessage MP_LightMsg;
+	MP_LightMsg.destination = MP_DSKY_INTERFACE;
+	MP_LightMsg.messageType = MP_DskyConnector::MP_DSKY_LIGHT_CHANGED;
+	MP_LightMsg.val1.iValue = (int)type;
+	MP_LightMsg.val2.bValue = state;
+
+	MPToDskyConnector.SendMessage(MP_LightMsg);
+	return true;
+}
+
+bool DSKY::MP_SendVerbFlashingMessage(bool state)
+{
+	ConnectorMessage MP_FlashMsg;
+	MP_FlashMsg.destination = MP_DSKY_INTERFACE;
+	MP_FlashMsg.messageType = MP_DskyConnector::MP_DSKY_VERB_FLASH_CHANGED;
+	MP_FlashMsg.val2.bValue = state;
+
+	MPToDskyConnector.SendMessage(MP_FlashMsg);
+	return true;
+}
+
+bool DSKY::MP_SendNounFlashingMessage(bool state)
+{
+	ConnectorMessage MP_FlashMsg;
+	MP_FlashMsg.destination = MP_DSKY_INTERFACE;
+	MP_FlashMsg.messageType = MP_DskyConnector::MP_DSKY_NOUN_FLASH_CHANGED;
+	MP_FlashMsg.val2.bValue = state;
+
+	MPToDskyConnector.SendMessage(MP_FlashMsg);
+	return true;
+}
+
+bool DSKY::MP_SendRegMessage(MP_DskyConnector::MP_DskyConnectorMessageType type, const char* state)
+{
+	ConnectorMessage MP_RegMsg;
+	MP_RegMsg.destination = MP_DSKY_INTERFACE;
+	MP_RegMsg.messageType = type;
+
+	MP_RegMsg.val2.pValue = (char*)state;
+
+	MPToDskyConnector.SendMessage(MP_RegMsg);
+	return true;
+}
+
+bool DSKY::MP_DSKY_ChangeState()
+{
+	if (MPToDskyConnector.CompActy != CompActy)
+	{
+		MPToDskyConnector.CompActy = CompActy;
+		MP_SendDSKYLightMessage(MP_DskyConnector::COMP_ACTY, CompActy);
+		return true;
+	}
+
+	if (MPToDskyConnector.UplinkLight != UplinkLight)
+	{
+		MPToDskyConnector.UplinkLight = UplinkLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::UPLINK, UplinkLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.NoAttLight != NoAttLight)
+	{
+		MPToDskyConnector.NoAttLight = NoAttLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::NO_ATT, NoAttLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.StbyLight != StbyLight)
+	{
+		MPToDskyConnector.StbyLight = StbyLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::STBY, StbyLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.KbRelLight != KbRelLight)
+	{
+		MPToDskyConnector.KbRelLight = KbRelLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::KB_REL, KbRelLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.OprErrLight != OprErrLight)
+	{
+		MPToDskyConnector.OprErrLight = OprErrLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::OPR_ERR, OprErrLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.TempLight != TempLight)
+	{
+		MPToDskyConnector.TempLight = TempLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::TEMP, TempLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.GimbalLockLight != GimbalLockLight)
+	{
+		MPToDskyConnector.GimbalLockLight = GimbalLockLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::GIM_LOCK, GimbalLockLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.ProgLight != ProgLight)
+	{
+		MPToDskyConnector.ProgLight = ProgLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::PROG, ProgLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.RestartLight != RestartLight)
+	{
+		MPToDskyConnector.RestartLight = RestartLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::RESTART, RestartLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.TrackerLight != TrackerLight)
+	{
+		MPToDskyConnector.TrackerLight = TrackerLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::TRACKER, TrackerLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.VelLight != VelLight)
+	{
+		MPToDskyConnector.VelLight = VelLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::VEL, VelLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.AltLight != AltLight)
+	{
+		MPToDskyConnector.AltLight = AltLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::VEL, AltLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.PrioDispLight != PrioDispLight)
+	{
+		MPToDskyConnector.PrioDispLight = PrioDispLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::PRIO_DISP, PrioDispLight);
+		return true;
+	}
+
+	if (MPToDskyConnector.NoDAPLight != NoDAPLight)
+	{
+		MPToDskyConnector.NoDAPLight = NoDAPLight;
+		MP_SendDSKYLightMessage(MP_DskyConnector::NO_DAP, NoDAPLight);
+		return true;
+	}
+
+		return false;
+}
+
+bool DSKY::MP_DSKY_ChangeVerbFlash()
+{
+	if (MPToDskyConnector.VerbFlashing != VerbFlashing)
+	{
+		MPToDskyConnector.VerbFlashing = VerbFlashing;
+		MP_SendVerbFlashingMessage(VerbFlashing);
+		return true;
+	}
+	return false;
+}
+
+bool DSKY::MP_DSKY_ChangeNounFlash()
+{
+	if (MPToDskyConnector.NounFlashing != NounFlashing)
+	{
+		MPToDskyConnector.NounFlashing = NounFlashing;
+		MP_SendNounFlashingMessage(NounFlashing);
+		return true;
+	}
+	return false;
+}
+
+bool DSKY::MP_DSKY_ChangeReg()
+{
+	MP_DskyConnector::MP_DskyConnectorMessageType type;
+	char state[7];
+
+	if (strcmp(MPToDskyConnector.Noun, Noun))
+	{
+		strcpy(MPToDskyConnector.Noun, Noun);
+		type = MP_DskyConnector::MP_DSKY_NOUN_CHANGED;
+		strcpy(state, Noun);
+		MP_SendRegMessage(type, state);
+	}
+
+	if (strcmp(MPToDskyConnector.Verb, Verb))
+	{
+		strcpy(MPToDskyConnector.Verb, Verb);
+		type = MP_DskyConnector::MP_DSKY_VERB_CHANGED;
+		strcpy(state, Verb);
+		MP_SendRegMessage(type, state);
+	}
+
+	if (strcmp(MPToDskyConnector.Prog, Prog))
+	{
+		strcpy(MPToDskyConnector.Prog, Prog);
+		type = MP_DskyConnector::MP_DSKY_PROG_CHANGED;
+		strcpy(state, Prog);
+		MP_SendRegMessage(type, state);
+	}
+
+	if (strcmp(MPToDskyConnector.R1, R1))
+	{
+		strcpy(MPToDskyConnector.R1, R1);
+		type = MP_DskyConnector::MP_DSKY_R1_CHANGED;
+		strcpy(state, R1);
+		MP_SendRegMessage(type, state);
+	}
+
+	if (strcmp(MPToDskyConnector.R2, R2))
+	{
+		strcpy(MPToDskyConnector.R2, R2);
+		type = MP_DskyConnector::MP_DSKY_R2_CHANGED;
+		strcpy(state, R2);
+		MP_SendRegMessage(type, state);
+	}
+
+	if (strcmp(MPToDskyConnector.R3, R3))
+	{
+		strcpy(MPToDskyConnector.R3, R3);
+		type = MP_DskyConnector::MP_DSKY_R3_CHANGED;
+		strcpy(state, R3);
+		MP_SendRegMessage(type, state);
+	}
+
+	return true;
+}
+
+// [/MP]
+
 void DSKY::Timestep(double simt)
 
 {
@@ -273,6 +621,7 @@ void DSKY::Timestep(double simt)
 		}
 		oapiCloseFile(DSKYOutConfig, FILE_IN_ZEROONFAIL);
 	}
+
 	if(DSKYOutEnabled){
 		char buffer[512];
 		int recvLen = recv(clientSock, buffer, sizeof(buffer) - 1, 0);
@@ -329,6 +678,16 @@ void DSKY::Timestep(double simt)
 
 void DSKY::SystemTimestep(double simdt)
 {
+	// [MP]
+	if (MPToDskyConnector.isHosting())
+	{
+		MP_DSKY_ChangeState();
+		MP_DSKY_ChangeNounFlash();
+		MP_DSKY_ChangeVerbFlash();
+		MP_DSKY_ChangeReg();
+	}
+	// [/MP]
+	
 	if (IsStatusPowered())
 	{
 		//
@@ -1585,3 +1944,196 @@ bool DSKY::GetDSKYPower()
 		return false;
 	}
 }
+
+MP_DskyConnector* DSKY::getMPConnector()
+{
+	return &MPToDskyConnector;
+}
+
+
+DSKY::MP_DskyDump DSKY::getDskyState()
+{
+	MP_DskyDump state;
+
+	state.CompActy = CompActy;
+	state.UplinkLight = UplinkLight;
+	state.NoAttLight = NoAttLight;
+	state.StbyLight = StbyLight;
+	state.KbRelLight = KbRelLight;
+	state.OprErrLight = OprErrLight;
+	state.TempLight = TempLight;
+	state.GimbalLockLight = GimbalLockLight;
+	state.ProgLight = ProgLight;
+	state.RestartLight = RestartLight;
+	state.TrackerLight = TrackerLight;
+	state.VelLight = VelLight;
+	state.AltLight = AltLight;
+	state.PrioDispLight = PrioDispLight;
+	state.NoDAPLight = NoDAPLight;
+
+	state.VerbFlashing = VerbFlashing;
+	state.NounFlashing = NounFlashing;
+
+	strcpy_s(state.Prog, 3, Prog);
+	strcpy_s(state.Verb, 3, Verb);
+	strcpy_s(state.Noun, 3, Noun);
+	strcpy_s(state.R1, 7, R1);
+	strcpy_s(state.R2, 7, R2);
+	strcpy_s(state.R3, 7, R3);
+
+	
+	return state;
+}
+
+void DSKY::setDskyState(MP_DskyDump state)
+{
+	CompActy = state.CompActy;
+	UplinkLight = state.UplinkLight;
+	NoAttLight = state.NoAttLight;
+	StbyLight = state.StbyLight;
+	KbRelLight = state.KbRelLight;
+	OprErrLight = state.OprErrLight;
+	TempLight = state.TempLight;
+	GimbalLockLight = state.GimbalLockLight;
+	ProgLight = state.ProgLight;
+	RestartLight = state.RestartLight;
+	TrackerLight = state.TrackerLight;
+	VelLight = state.VelLight;
+	AltLight = state.AltLight;
+	PrioDispLight = state.PrioDispLight;
+	NoDAPLight = state.NoDAPLight;
+
+	VerbFlashing = state.VerbFlashing;
+	NounFlashing = state.NounFlashing;
+
+	strcpy_s(Prog, 3, state.Prog);
+	strcpy_s(Verb, 3, state.Verb);
+	strcpy_s(Noun, 3, state.Noun);
+	strcpy_s(R1, 7, state.R1);
+	strcpy_s(R2, 7, state.R2);
+	strcpy_s(R3, 7, state.R3);
+}
+
+void DSKY::MP_SetNoun(const char* noun)
+{
+	strcpy_s(Noun, 3, noun);
+}
+
+void DSKY::MP_SetVerb(const char* verb)
+{
+	strcpy_s(Verb, 3, verb);
+}
+
+void DSKY::MP_SetProg(const char* prog)
+{
+	strcpy_s(Prog, 3, prog);
+}
+
+void DSKY::MP_SetR1(const char* r1)
+{
+	strcpy_s(R1, 7, r1);
+}
+
+void DSKY::MP_SetR2(const char* r2)
+{
+	strcpy_s(R2, 7, r2);
+}
+
+void DSKY::MP_SetR3(const char* r3)
+{
+	strcpy_s(R3, 7, r3);
+}
+
+MP_DskyConnector::MP_DskyConnector(DSKY& d) : dsky(d), hosting(false)
+{
+	type = MP_DSKY_INTERFACE;
+}
+
+MP_DskyConnector::~MP_DskyConnector()
+{
+}
+
+bool MP_DskyConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
+{
+	//
+	// Sanity check.
+	//
+
+	if (m.destination != type)
+	{
+		return false;
+	}
+
+	MP_DskyConnectorMessageType messageType;
+
+	messageType = (MP_DskyConnectorMessageType)m.messageType;
+
+	bool state = false;
+
+	switch (messageType)
+	{
+	case MP_DSKY_SET_HOSTING:
+		hosting = m.val1.bValue;
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_LIGHT:
+		dsky.MP_SetLight((DskyLightType)m.val1.iValue, m.val2.bValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_NOUN:
+		dsky.MP_SetNoun((char*)m.val1.pValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_VERB:
+		dsky.MP_SetVerb((char*)m.val1.pValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_PROG:
+		dsky.MP_SetProg((char*)m.val1.pValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_R1:
+		dsky.MP_SetR1((char*)m.val1.pValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_R2:
+		dsky.MP_SetR2((char*)m.val1.pValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_R3:
+		dsky.MP_SetR3((char*)m.val1.pValue);
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_NOUN_FLASH:
+		state = m.val2.bValue;
+		if (state) dsky.SetNounDisplayFlashing();
+		else dsky.ClearNounDisplayFlashing();
+		m.val1.bValue = true;
+		return true;
+
+	case MP_DSKY_SET_VERB_FLASH:
+		state = m.val2.bValue;
+		if (state) dsky.SetVerbDisplayFlashing();
+		else dsky.ClearVerbDisplayFlashing();
+		m.val1.bValue = true;
+		return true;
+	}
+
+
+	return false;
+}
+
+bool MP_DskyConnector::isHosting()
+{
+	return hosting;
+}
+
+// [/MP]

@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN DSKY
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - dsky.h
+  * 
+  * Changes: added multiplayer state synchronization
+  *		     (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 //Network code slightly modified from here
 //https://github.com/jchamet/cpp-send-udp
 
@@ -35,13 +49,15 @@
 
 #include "toggleswitch.h"
 #include "apolloguidance.h"
+#include "connector.h"
 
 class DSKY : public e_object
 
 {
 public:
-
+	// [MULTIPLAYER]
 	DSKY(SoundLib &s, ApolloGuidance &computer, PanelSDK& p, int IOChannel = 015);
+	// [/MULTIPLAYER]
 	virtual ~DSKY();
 
 	void Init(
@@ -100,6 +116,63 @@ public:
 
 	void ClearStby()		{ StbyLight = false; };
 	void ClearRestart()		{ RestartLight = false; };
+
+	// [MULTIPLAYER]
+	MP_DskyConnector* getMPConnector();
+
+	static struct MP_DskyDump
+	{
+		bool CompActy;
+		bool UplinkLight;
+		bool NoAttLight;
+		bool StbyLight;
+		bool KbRelLight;
+		bool OprErrLight;
+		bool TempLight;
+		bool GimbalLockLight;
+		bool ProgLight;
+		bool RestartLight;
+		bool TrackerLight;
+		bool VelLight;
+		bool AltLight;
+		bool PrioDispLight;
+		bool NoDAPLight;
+
+		bool VerbFlashing;
+		bool NounFlashing;
+
+		char Prog[3];
+		char Verb[3];
+		char Noun[3];
+		char R1[7];
+		char R2[7];
+		char R3[7];
+
+	};
+
+	DSKY::MP_DskyDump getDskyState();
+	void setDskyState(MP_DskyDump state);
+	
+	void MP_SetNoun(const char* noun);
+	void MP_SetVerb(const char* verb);
+	void MP_SetProg(const char* prog);
+	void MP_SetR1(const char* r1);
+	void MP_SetR2(const char* r2);
+	void MP_SetR3(const char* r3);
+
+	void MP_SetLight(MP_DskyConnector::DskyLightType light, bool state);
+	bool MP_GetLight(MP_DskyConnector::DskyLightType light);
+
+	bool MP_SendDSKYLightMessage(MP_DskyConnector::DskyLightType type, bool state);
+	bool MP_SendVerbFlashingMessage(bool state);
+	bool MP_SendNounFlashingMessage(bool state);
+	bool MP_SendRegMessage(MP_DskyConnector::MP_DskyConnectorMessageType type, const char* state);
+	bool MP_DSKY_ChangeState();
+	bool MP_DSKY_ChangeVerbFlash();
+	bool MP_DSKY_ChangeNounFlash();
+	bool MP_DSKY_ChangeReg();
+	// [/MULTIPLAYER]
+
 
 	//
 	// Flashing status.
@@ -321,6 +394,9 @@ protected:
 	void RenderSixDigitDisplay(SURFHANDLE surf, SURFHANDLE digits, int dstx, int dsty, char *Str, bool Off, int xTexMul = 1);
 	int TwoDigitDisplaySegmentsLit(char *Str, bool Flash, bool Off);
 	int SixDigitDisplaySegmentsLit(char *Str, bool Off);
+
+	// [MULTIPLAYER]
+	MP_DskyConnector MPToDskyConnector;
 };
 
 //

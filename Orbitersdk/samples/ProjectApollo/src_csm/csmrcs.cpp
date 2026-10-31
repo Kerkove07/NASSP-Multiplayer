@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * CSM REACTION CONTROL SYSTEM (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - csmrcs.cpp
+  * 
+  * Changes: Added Toggled ConnectorMessage to SMRCSPropellantSource and CMRCSPropellantSource Panel Switches
+  *			 (2026-10)
+  * 
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -207,6 +221,16 @@ void SMRCSPropellantSource::SetThrusters(PROPELLANT_HANDLE ph) {
 
 void SMRCSPropellantSource::PropellantSwitchToggled(PanelSwitchItem *s) {
 
+	// [MP]
+	ConnectorMessage MP_ToggleMsg;
+	MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+	MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+	MP_ToggleMsg.val1.pValue = (void*)s->GetName();
+	MP_ToggleMsg.val2.iValue = s->GetState();
+
+	MPToSMRCSConnector.SendMessage(MP_ToggleMsg);
+	// [/MP]
+	
 	if (s->IsPowered()) {
 		if (((ThreePosSwitch *)s)->IsUp()) {
 			primPropellantValve.SetState(true);
@@ -588,6 +612,16 @@ double CMRCSPropellantSource::GetPropellantPressurePSI() {
 }
 
 void CMRCSPropellantSource::PropellantSwitchToggled(PanelSwitchItem *s) {
+	
+	// [MP]
+	ConnectorMessage MP_ToggleMsg;
+	MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+	MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+	MP_ToggleMsg.val1.pValue = (void*)s->GetName();
+	MP_ToggleMsg.val2.iValue = s->GetState();
+
+	MPToCMRCSConnector.SendMessage(MP_ToggleMsg);
+	// [/MP]
 	
 	if (s->IsPowered()) {
 		if (((ThreePosSwitch *)s)->IsUp()) {

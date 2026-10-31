@@ -22,6 +22,21 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SCS SIMULATION (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - scs.cpp
+  * 
+  * Changes: Added Toggled ConnectorMessage to ASCP dials
+  *			 Disable EMS Timestep on Client
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 
@@ -1110,10 +1125,14 @@ ASCP::ASCP(Sound &clicksound) : ClickSound(clicksound)
 	mousedownangle = -3;
 }
 
-void ASCP::Init(Saturn *vessel)
+void ASCP::Init(Saturn *vessel, MP_PanelConnector* MPToPanelConnector) // [MP]
 
 {
 	sat = vessel;
+	
+	// [MP]
+	pConn = MPToPanelConnector;
+	// [/MP]
 }
 
 void ASCP::TimeStep(double simdt)
@@ -1135,6 +1154,7 @@ void ASCP::TimeStep(double simdt)
 					
 					rolldisplay += change * 2.0;
 					if (rolldisplay > 4) rolldisplay = 0;
+
 				
 				} else if (mousedownposition == ASCP_ROLLDOWN) {
 					output.x -= change;
@@ -1144,6 +1164,7 @@ void ASCP::TimeStep(double simdt)
 
 					rolldisplay -= change * 2.0;
 					if (rolldisplay < 0) rolldisplay = 4;
+
 				
 				}  else if (mousedownposition == ASCP_PITCHUP) {
 					output.y += change;
@@ -1154,6 +1175,7 @@ void ASCP::TimeStep(double simdt)
 					pitchdisplay += change * 2.0;
 					if (pitchdisplay > 4) pitchdisplay = 0;
 
+
 				}  else if (mousedownposition == ASCP_PITCHDOWN) {
 					output.y -= change;
 
@@ -1163,6 +1185,7 @@ void ASCP::TimeStep(double simdt)
 
 					pitchdisplay -= change * 2.0;
 					if (pitchdisplay < 0) pitchdisplay = 4;
+
 
 				}  else if (mousedownposition == ASCP_YAWUP) {
 					output.z += change;
@@ -1175,6 +1198,7 @@ void ASCP::TimeStep(double simdt)
 
 					yawdisplay += change * 2.0;
 					if (yawdisplay > 4) yawdisplay = 0;
+
 
 				}  else if (mousedownposition == ASCP_YAWDOWN) {
 					output.z -= change;
@@ -1327,6 +1351,18 @@ bool ASCP::RollClick(int Event, int mx, int my)
 			rolldisplay--;
 			if (rolldisplay < 0) rolldisplay = 4;
 			ClickSound.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)"ASCPRollSwitch";
+			cm.val2.iValue = output.x * 10.;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
+
 			return true;
 		}
 	} else {
@@ -1334,6 +1370,18 @@ bool ASCP::RollClick(int Event, int mx, int my)
 			rolldisplay++;
 			if (rolldisplay > 4) rolldisplay = 0;
 			ClickSound.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)"ASCPRollSwitch";
+			cm.val2.iValue = output.x * 10.;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
+
 			return true;
 		}
 	}
@@ -1420,6 +1468,17 @@ bool ASCP::PitchClick(int Event, int mx, int my)
 			pitchdisplay--;
 			if (pitchdisplay < 0) pitchdisplay = 4;
 			ClickSound.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)"ASCPPitchSwitch";
+			cm.val2.iValue = output.y * 10.;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
 			return true;
 		}
 	} else {
@@ -1427,6 +1486,17 @@ bool ASCP::PitchClick(int Event, int mx, int my)
 			pitchdisplay++;
 			if (pitchdisplay > 4) pitchdisplay = 0;
 			ClickSound.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)"ASCPPitchSwitch";
+			cm.val2.iValue = output.y * 10.;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
 			return true;
 		}
 	}
@@ -1511,6 +1581,17 @@ bool ASCP::YawClick(int Event, int mx, int my)
 			yawdisplay--;
 			if (yawdisplay < 0) yawdisplay = 4;
 			ClickSound.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)"ASCPYawSwitch";
+			cm.val2.iValue = output.z * 10.;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
 			return true;
 		}
 	} else {
@@ -1518,6 +1599,17 @@ bool ASCP::YawClick(int Event, int mx, int my)
 			yawdisplay++;
 			if (yawdisplay > 4) yawdisplay = 0;
 			ClickSound.play();
+
+			// [MP]
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+			cm.val1.pValue = (void*)"ASCPYawSwitch";
+			cm.val2.iValue = output.z * 10.;
+
+			if (pConn)
+				pConn->SendMessage(cm);
+			// [/MP]
 			return true;
 		}
 	}
@@ -4901,6 +4993,10 @@ void EMS::Init(Saturn *vessel, e_object *a, e_object *b, ContinuousRotationalSwi
 
 void EMS::TimeStep(double simdt) {
 
+	// [MP]
+	if (MP_isClient) return;
+	// [/MP]
+
 	double position;
 	double dV;
 
@@ -5548,6 +5644,13 @@ void EMS::DrawSwitchVC(int id, int event, SURFHANDLE surf)
 {
 	if (anim_RSI_indicator != -1) sat->SetAnimation(anim_RSI_indicator, RSIRotation / PI2);
 }
+
+// [MP]
+void EMS::Set_MP_IsClient(bool bYN)
+{
+	MP_isClient = bYN;
+}
+// [/MP]
 
 // The following code was found and supplied by computerex at orbiter-forum.  The code is from the MSDN sample code library.
 PBITMAPINFO CreateBitmapInfoStruct(HBITMAP hBmp)

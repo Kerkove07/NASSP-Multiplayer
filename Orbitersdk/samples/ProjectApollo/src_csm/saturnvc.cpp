@@ -23,6 +23,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN 5 VIRTUAL COCKPIT (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - saturnvc.cpp
+  * 
+  * Changes: Client State Sync for seats in VC
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -1828,6 +1842,17 @@ bool Saturn::clbkVCMouseEvent (int id, int event, VECTOR3 &p)
 
 		SwitchClick();
 		SetVCSeatsMesh();
+
+		/* TODO - CREATE VC MULTIPLAYER CONNECTOR
+		// [MP]
+		ConnectorMessage cm;
+		cm.destination = MP_PANEL_INTERFACE;
+		cm.messageType = MP_PanelConnector::MP_PANEL_SEATS_TOGGLED;
+		cm.val1.bValue = VCSeatsfolded;
+
+		MPToPanelConnector.SendMessage(cm);
+		// [/MP]*/
+
 		return true;
 	}
 

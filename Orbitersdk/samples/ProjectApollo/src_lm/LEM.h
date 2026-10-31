@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * LEM (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - lem.h
+  * 
+  * Changes: Added SyncMissionTime & SyncFDAI
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #if !defined(_PA_LEM_H)
 #define _PA_LEM_H
 
@@ -584,6 +598,12 @@ public:
 	void SetVCCueCardsArrows();
 	void SetWindowShades();
 	double GetMissionTime() { return MissionTime; }; // This must be here for the MFD can't use it.
+	
+	// [MP]
+	void SetMissionTime(double mt) { MissionTime = mt; }
+	void SyncFDAI(double simt, double simdt);
+	// [/MP]
+	
 	int GetApolloNo() { return ApolloNo; }
 	UINT GetStage() { return stage; }
 	virtual double GetAscentStageMass();
@@ -1979,6 +1999,12 @@ protected:
 	/// \brief MFD to panel connector.
 	///
 	PanelConnector MFDToPanelConnector;
+
+	// [MULTIPLAYER]
+	// Multiplayer Panel Connector
+	MP_PanelConnector MPToPanelConnector;
+	// Multiplayer DSKY Connector
+	MP_DskyConnector* MPToDskyConnector;
 
 	///
 	/// \brief Connector from LEM to CSM when docked.

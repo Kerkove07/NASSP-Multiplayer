@@ -22,18 +22,34 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * FDAI (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - fdai.h
+  * 
+  * Changes: added multiplayer state synchronization
+  *		     (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 /// \bug Avoids bug in VC++
 #pragma once
 
 #include < GL\gl.h >                                
 #include < GL\glu.h >
 
+class MP_PanelConnector;
+
 class FDAI {
 
 public:
 	FDAI();
 	virtual ~FDAI();
-	void Init(VESSEL *v);
+	void Init(VESSEL *v, MP_PanelConnector* MPToPanelConnector);
 	void RegisterMe(int index, int x, int y);
 	void Timestep(double simt, double simdt);
 	void SystemTimestep(double simdt);
@@ -50,6 +66,17 @@ public:
 	void WireTo(e_object *dc, e_object *ac) { DCSource = dc; ACSource = ac; };
 	bool LM_FDAI;
 	void WireTo(e_object *dc) { DCSource = dc; noAC = true; };
+
+	// [MP]
+	VECTOR3 GetTarget();
+	void SetTarget(VECTOR3 t);
+	VECTOR3 GetNow();
+	void SetNow(VECTOR3 n);
+	VECTOR3 GetRates();
+	void SetRates(VECTOR3 r);
+	VECTOR3 GetErrors();
+	void SetErrors(VECTOR3 e);
+	// [/MP]
 
 protected:
 	int ScrX;
@@ -81,6 +108,10 @@ protected:
 	int LoadOGLBitmap(char *filename);
 
 	VESSEL *vessel;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 //

@@ -23,6 +23,21 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN CSM PANEL (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - saturnpanel.cpp
+  * 
+  * Changes: Added Toggled ConnectorMessage to TwoPositionSwitch, RotationalSwitch
+  *			 Client State Sync for FDAIs
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -1771,8 +1786,8 @@ void Saturn::SetSwitches(int panel) {
 	// SATPANEL_MAIN
 	//
 
-	fdaiLeft.Init(this);
-	fdaiRight.Init(this);
+	fdaiLeft.Init(this, &MPToPanelConnector);
+	fdaiRight.Init(this, &MPToPanelConnector);
 
 	MasterAlarmSwitchRow.Init(0, MainPanel);
 	MasterAlarmSwitch.Init(&cws);
@@ -2523,7 +2538,7 @@ void Saturn::SetSwitches(int panel) {
 	
 	EMSDvDisplayRow.Init(AID_EMSDVDISPLAY, MainPanel, &GaugePower);
 	EMSDvSetSwitch.Init(this);
-	EMSDvDisplay.Init(srf[SRF_DIGITAL], EMSDvDisplayRow, this);
+	EMSDvDisplay.Init(srf[SRF_DIGITAL], EMSDvDisplayRow, this, &MPToPanelConnector);
 	EMSScrollDisplay.Init(EMSDvDisplayRow, this); 	// dummy switch/display for checklist controller
 
 	//
@@ -3831,6 +3846,18 @@ bool Saturn::clbkPanelMouseEvent (int id, int event, int mx, int my)
 }
 
 void Saturn::PanelSwitchToggled(TwoPositionSwitch *s) {
+	
+	// [MP]
+	ConnectorMessage MP_ToggleMsg;
+	MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+	MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+	MP_ToggleMsg.val1.pValue = (void*)s->GetName();
+	MP_ToggleMsg.val2.iValue = s->GetState();
+	MP_ToggleMsg.val3.bValue = s->GetGuardState();
+	MP_ToggleMsg.val4.bValue = s->IsHeld();
+
+	MPToPanelConnector.SendMessage(MP_ToggleMsg);
+	// [/MP]
 
 	if (s == &FuelCellRadiators1Switch) {
 		if (FuelCell1RadCB.IsPowered()) {
@@ -4097,6 +4124,16 @@ void Saturn::PanelIndicatorSwitchStateRequested(IndicatorSwitch *s) {
 
 void Saturn::PanelRotationalSwitchChanged(RotationalSwitch *s) {
 
+	// [MP]
+	ConnectorMessage MP_ToggleMsg;
+	MP_ToggleMsg.destination = MP_PANEL_INTERFACE;
+	MP_ToggleMsg.messageType = MP_PanelConnector::MP_PANEL_SWITCH_TOGGLED;
+	MP_ToggleMsg.val1.pValue = (void*)s->GetName();
+	MP_ToggleMsg.val2.iValue = s->GetState();
+
+	MPToPanelConnector.SendMessage(MP_ToggleMsg);
+	// [/MP]
+	
 	if (s == &BatteryChargeRotary) {
 		if (s->GetState() == 1 && MainBusTieBatAcSwitch.IsDown()) 
 			BatteryCharger.Charge(1);
@@ -4614,8 +4651,19 @@ bool Saturn::clbkPanelRedrawEvent(int id, int event, SURFHANDLE surf)
 			VECTOR3 euler_rates;
 			VECTOR3 errors;
 
-			euler_rates = eda.GetFDAI1AttitudeRate();
-			errors = eda.GetFDAI1AttitudeError();
+			// [MP]
+			if (MPToPanelConnector.getSyncClient())
+			{
+				euler_rates = MPToPanelConnector.FDAI1_rates;
+				errors = MPToPanelConnector.FDAI1_errors;
+			}
+
+			else
+			{
+				euler_rates = eda.GetFDAI1AttitudeRate();
+				errors = eda.GetFDAI1AttitudeError();
+			}
+			// [/MP]
 
 			// ERRORS IN PIXELS -- ENFORCE LIMITS HERE
 			if(errors.x > 41){ errors.x = 41; }else{ if(errors.x < -41){ errors.x = -41; }}
@@ -4635,8 +4683,19 @@ bool Saturn::clbkPanelRedrawEvent(int id, int event, SURFHANDLE surf)
 			VECTOR3 euler_rates;
 			VECTOR3 errors;
 
-			euler_rates = eda.GetFDAI2AttitudeRate();
-			errors = eda.GetFDAI2AttitudeError();
+			// [MP]
+			if (MPToPanelConnector.getSyncClient())
+			{
+				euler_rates = MPToPanelConnector.FDAI2_rates;
+				errors = MPToPanelConnector.FDAI2_errors;
+			}
+
+			else
+			{
+				euler_rates = eda.GetFDAI2AttitudeRate();
+				errors = eda.GetFDAI2AttitudeError();
+			}
+			// [/MP]
 
 			// ERRORS IN PIXELS -- ENFORCE LIMITS HERE
 			if(errors.x > 41){ errors.x = 41; }else{ if(errors.x < -41){ errors.x = -41; }}
@@ -5046,18 +5105,18 @@ void Saturn::InitSwitches() {
 	THCRotary.AddPosition(2, 30);
 	THCRotary.Register(PSH, "THCRotary", 1);
 
-	LiftoffNoAutoAbortSwitch.Register(PSH, "LiftoffNoAutoAbortSwitch", false, false);
-	LesMotorFireSwitch.Register(PSH, "LesMotorFireSwitch", false, false);
-	CanardDeploySwitch.Register(PSH, "CanardDeploySwitch", false, false);
-	CsmLvSepSwitch.Register(PSH, "CsmLvSepSwitch", false, false);
+	LiftoffNoAutoAbortSwitch.Register(PSH, "LiftoffNoAutoAbortSwitch", false, false, &MPToPanelConnector);
+	LesMotorFireSwitch.Register(PSH, "LesMotorFireSwitch", false, false, &MPToPanelConnector);
+	CanardDeploySwitch.Register(PSH, "CanardDeploySwitch", false, false, & MPToPanelConnector);
+	CsmLvSepSwitch.Register(PSH, "CsmLvSepSwitch", false, false, &MPToPanelConnector);
 	CsmLvSepSwitch.SetDelayTime(1);
-	ApexCoverJettSwitch.Register(PSH, "ApexCoverJettSwitch", false, false);
-	DrogueDeploySwitch.Register(PSH, "DrogueDeploySwitch", false, false);
-	MainDeploySwitch.Register(PSH, "MainDeploySwitch", false, false);
-	CmRcsHeDumpSwitch.Register(PSH, "CmRcsHeDumpSwitch", false, false);
+	ApexCoverJettSwitch.Register(PSH, "ApexCoverJettSwitch", false, false, &MPToPanelConnector);
+	DrogueDeploySwitch.Register(PSH, "DrogueDeploySwitch", false, false, &MPToPanelConnector);
+	MainDeploySwitch.Register(PSH, "MainDeploySwitch", false, false, &MPToPanelConnector);
+	CmRcsHeDumpSwitch.Register(PSH, "CmRcsHeDumpSwitch", false, false, &MPToPanelConnector);
 
 	if (!SkylabCM) {
-		SIVBPayloadSepSwitch.Register(PSH, "SIVBPayloadSepSwitch", TOGGLESWITCH_DOWN, 0, SPRINGLOADEDSWITCH_DOWN);
+		SIVBPayloadSepSwitch.Register(PSH, "SIVBPayloadSepSwitch", TOGGLESWITCH_DOWN, 0, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 		SIVBPayloadSepSwitch.SetDelayTime(2);
 	}
 
@@ -5224,31 +5283,31 @@ void Saturn::InitSwitches() {
 
 	PostLandingBCNLTSwitch.Register(PSH, "PostLandingBCNLTSwitch", THREEPOSSWITCH_CENTER);
 
-	PostLandingDYEMarkerSwitch.Register(PSH, "PostLandingDYEMarkerSwitch", false, false);
+	PostLandingDYEMarkerSwitch.Register(PSH, "PostLandingDYEMarkerSwitch", false, false, false, &MPToPanelConnector);
 
-	GTASwitch.Register(PSH, "GTASwitch", false, false);
+	GTASwitch.Register(PSH, "GTASwitch", false, false, false, &MPToPanelConnector);
 	
 	PostLandingVentSwitch.Register(PSH, "PostLandingVentSwitch", THREEPOSSWITCH_DOWN);
 
-	LeftModeIntercomVOXSensThumbwheelSwitch.Register(PSH, "LeftModeIntercomVOXSensThumbwheelSwitch", 5, 9);
+	LeftModeIntercomVOXSensThumbwheelSwitch.Register(PSH, "LeftModeIntercomVOXSensThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	LeftPowerMasterVolumeThumbwheelSwitch.Register(PSH, "LeftPowerMasterVolumeThumbwheelSwitch", 5, 9);
+	LeftPowerMasterVolumeThumbwheelSwitch.Register(PSH, "LeftPowerMasterVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	LeftPadCommVolumeThumbwheelSwitch.Register(PSH, "LeftPadCommVolumeThumbwheelSwitch", 5, 9);
+	LeftPadCommVolumeThumbwheelSwitch.Register(PSH, "LeftPadCommVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	LeftIntercomVolumeThumbwheelSwitch.Register(PSH, "LeftIntercomVolumeThumbwheelSwitch", 5, 9);
+	LeftIntercomVolumeThumbwheelSwitch.Register(PSH, "LeftIntercomVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	LeftSBandVolumeThumbwheelSwitch.Register(PSH, "LeftSBandVolumeThumbwheelSwitch", 5, 9);
+	LeftSBandVolumeThumbwheelSwitch.Register(PSH, "LeftSBandVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	LeftVHFAMVolumeThumbwheelSwitch.Register(PSH, "LeftVHFAMVolumeThumbwheelSwitch", 5, 9);
+	LeftVHFAMVolumeThumbwheelSwitch.Register(PSH, "LeftVHFAMVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	LeftAudioVOXSensThumbwheel.Register(PSH, "LeftAudioVOXSensThumbwheel", 5, 9);
-	LeftAudioPadComVolumeThumbwheel.Register(PSH, "LeftAudioPadComVolumeThumbwheel", 5, 9);
-	LeftAudioSBandVolumeThumbwheel.Register(PSH, "LeftAudioSBandVolumeThumbwheel", 5, 9);
+	LeftAudioVOXSensThumbwheel.Register(PSH, "LeftAudioVOXSensThumbwheel", 5, 9, &MPToPanelConnector);
+	LeftAudioPadComVolumeThumbwheel.Register(PSH, "LeftAudioPadComVolumeThumbwheel", 5, 9, &MPToPanelConnector);
+	LeftAudioSBandVolumeThumbwheel.Register(PSH, "LeftAudioSBandVolumeThumbwheel", 5, 9, &MPToPanelConnector);
 
-	RightAudioMasterVolumeThumbwheel.Register(PSH, "RightAudioMasterVolumeThumbwheel", 5, 9);
-	RightAudioIntercomVolumeThumbwheel.Register(PSH, "RightAudioIntercomVolumeThumbwheel", 5, 9);
-	RightAudioVHFAMVolumeThumbwheel.Register(PSH, "RightAudioVHFAMVolumeThumbwheel", 5, 9);
+	RightAudioMasterVolumeThumbwheel.Register(PSH, "RightAudioMasterVolumeThumbwheel", 5, 9, &MPToPanelConnector);
+	RightAudioIntercomVolumeThumbwheel.Register(PSH, "RightAudioIntercomVolumeThumbwheel", 5, 9, &MPToPanelConnector);
+	RightAudioVHFAMVolumeThumbwheel.Register(PSH, "RightAudioVHFAMVolumeThumbwheel", 5, 9, &MPToPanelConnector);
 
 	LeftModeIntercomSwitch.Register(PSH, "LeftModeIntercomSwitch", THREEPOSSWITCH_UP);
 
@@ -5445,7 +5504,7 @@ void Saturn::InitSwitches() {
 	if (!SkylabCM)
 		IUUplinkSwitch.Register(PSH, "IUUplinkSwitch", TOGGLESWITCH_DOWN);
 
-	CMRCSPressSwitch.Register(PSH, "CMRCSPressSwitch", 0, 0, SPRINGLOADEDSWITCH_DOWN);
+	CMRCSPressSwitch.Register(PSH, "CMRCSPressSwitch", 0, 0, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 	SMRCSIndSwitch.Register(PSH, "SMRCSIndSwitch", TOGGLESWITCH_UP);
 
 	RCSQuantityMeter.Register(PSH, "RCSQuantityMeter", 0.0, 1.0, 2);
@@ -5492,7 +5551,7 @@ void Saturn::InitSwitches() {
 	FDAISourceSwitch.Register(PSH, "FDAISourceSwitch", THREEPOSSWITCH_UP);
 	FDAIAttSetSwitch.Register(PSH, "FDAIAttSetSwitch", false);
 
-	IMUGuardedCageSwitch.Register(PSH, "IMUGuardedCageSwitch", 0, 0);
+	IMUGuardedCageSwitch.Register(PSH, "IMUGuardedCageSwitch", 0, 0, 0, &MPToPanelConnector);
 
 	RCSIndicatorsSwitch.AddPosition(0, 278);
 	RCSIndicatorsSwitch.AddPosition(1, 309);
@@ -5502,11 +5561,11 @@ void Saturn::InitSwitches() {
 	RCSIndicatorsSwitch.AddPosition(5,  81);
 	RCSIndicatorsSwitch.Register(PSH, "RCSIndicatorsSwitch", 1);
 
-	LVGuidanceSwitch.Register(PSH, "LVGuidanceSwitch", TOGGLESWITCH_UP, false);
+	LVGuidanceSwitch.Register(PSH, "LVGuidanceSwitch", TOGGLESWITCH_UP, false, false, &MPToPanelConnector);
 	LVGuidanceSwitch.SetGuardResetsState(false);
 
 	if (!SkylabCM) {
-		SIISIVBSepSwitch.Register(PSH, "SIISIVBSepSwitch", false, false);
+		SIISIVBSepSwitch.Register(PSH, "SIISIVBSepSwitch", false, false, false, &MPToPanelConnector);
 		TLIEnableSwitch.Register(PSH, "TLIEnableSwitch", true);
 	}
 
@@ -5515,11 +5574,11 @@ void Saturn::InitSwitches() {
 	ECSIndicatorsSwitch.Register(PSH, "ECSIndicatorsSwitch", 0);
 
 	CGSwitch.Register(PSH, "CGSwitch", 1);
-	ELSLogicSwitch.Register(PSH, "ELSLogicSwitch", 0, 0);
+	ELSLogicSwitch.Register(PSH, "ELSLogicSwitch", 0, 0, 0, &MPToPanelConnector);
 	ELSAutoSwitch.Register(PSH, "ELSAutoSwitch", 1);
 	CMRCSLogicSwitch.Register(PSH, "CMRCSLogicSwitch", 0);
-	CMPropDumpSwitch.Register(PSH, "CMPropDumpSwitch", 0, 0);
-	CMPropPurgeSwitch.Register(PSH, "CMPropPurgeSwitch", 0, 0);
+	CMPropDumpSwitch.Register(PSH, "CMPropDumpSwitch", 0, 0, 0, &MPToPanelConnector);
+	CMPropPurgeSwitch.Register(PSH, "CMPropPurgeSwitch", 0, 0, 0, &MPToPanelConnector);
 
 	// FCSMSPSASwitch.Register(PSH, "FCSMSPSASwitch", 0);
 	// FCSMSPSBSwitch.Register(PSH, "FCSMSPSBSwitch", 0);
@@ -5529,27 +5588,27 @@ void Saturn::InitSwitches() {
 	EventTimerSecondsSwitch.Register(PSH, "EventTimerSecondsSwitch", THREEPOSSWITCH_CENTER, SPRINGLOADEDSWITCH_CENTER);
 	SaturnEventTimerDisplay.Register(PSH, "SaturnEventTimerDisplay", 0, 0, 0);	// dummy switch/display for checklist controller
 
-	MainReleaseSwitch.Register(PSH, "MainReleaseSwitch", 0, 0, SPRINGLOADEDSWITCH_DOWN);
+	MainReleaseSwitch.Register(PSH, "MainReleaseSwitch", 0, 0, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 
 	PropDumpAutoSwitch.Register(PSH, "PropDumpAutoSwitch", 1);
 	TwoEngineOutAutoSwitch.Register(PSH, "TwoEngineOutAutoSwitch", 1);
 	LVRateAutoSwitch.Register(PSH, "LVRateAutoSwitch", 1);
-	TowerJett1Switch.Register(PSH, "TowerJett1Switch", THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_CENTER_SPRINGUP);
+	TowerJett1Switch.Register(PSH, "TowerJett1Switch", THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_CENTER_SPRINGUP, &MPToPanelConnector);
 	TowerJett1Switch.SetGuardResetsState(false);
 	TowerJett1Switch.SetDelayTime(2);
-	TowerJett2Switch.Register(PSH, "TowerJett2Switch", THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_CENTER_SPRINGUP);
+	TowerJett2Switch.Register(PSH, "TowerJett2Switch", THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_CENTER_SPRINGUP, &MPToPanelConnector);
 	TowerJett2Switch.SetGuardResetsState(false);
 	TowerJett2Switch.SetDelayTime(2);
 
-	CmSmSep1Switch.Register(PSH, "CmSmSep1Switch", 0, 0, SPRINGLOADEDSWITCH_DOWN);
+	CmSmSep1Switch.Register(PSH, "CmSmSep1Switch", 0, 0, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 	CmSmSep1Switch.SetDelayTime(2);
-	CmSmSep2Switch.Register(PSH, "CmSmSep2Switch", 0, 0, SPRINGLOADEDSWITCH_DOWN);
+	CmSmSep2Switch.Register(PSH, "CmSmSep2Switch", 0, 0, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 	CmSmSep2Switch.SetDelayTime(2);
 
 	EDSSwitch.Register(PSH, "EDSSwitch", 0, SPRINGLOADEDSWITCH_NONE, "EDS Auto switch");
-	CsmLmFinalSep1Switch.Register(PSH, "CsmLmFinalSep1Switch",  THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_DOWN);
+	CsmLmFinalSep1Switch.Register(PSH, "CsmLmFinalSep1Switch",  THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 	CsmLmFinalSep1Switch.SetDelayTime(2);
-	CsmLmFinalSep2Switch.Register(PSH, "CsmLmFinalSep2Switch",  THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_DOWN);
+	CsmLmFinalSep2Switch.Register(PSH, "CsmLmFinalSep2Switch",  THREEPOSSWITCH_DOWN, false, SPRINGLOADEDSWITCH_DOWN, &MPToPanelConnector);
 	CsmLmFinalSep2Switch.SetDelayTime(2);
 
 	RotPowerNormal1Switch.Register(PSH, "RotPowerNormal1Switch", THREEPOSSWITCH_CENTER);
@@ -5557,14 +5616,14 @@ void Saturn::InitSwitches() {
 	RotPowerDirect1Switch.Register(PSH, "RotPowerDirect1Switch", THREEPOSSWITCH_CENTER);
 	RotPowerDirect2Switch.Register(PSH, "RotPowerDirect2Switch", THREEPOSSWITCH_CENTER);
 
-	dVThrust1Switch.Register(PSH, "dVThrust1Switch", 0, 0);
-	dVThrust2Switch.Register(PSH, "dVThrust2Switch", 0, 0);
+	dVThrust1Switch.Register(PSH, "dVThrust1Switch", 0, 0, 0, &MPToPanelConnector);
+	dVThrust2Switch.Register(PSH, "dVThrust2Switch", 0, 0, 0, &MPToPanelConnector);
 
 	SPSswitch.Register(PSH, "SPSswitch", false);
 
-	SPSGimbalPitchThumbwheel.Register(PSH, "SPSGimbalPitchThumbwheel", 0.0, -4.0, 4.0, 0.5, false);
+	SPSGimbalPitchThumbwheel.Register(PSH, "SPSGimbalPitchThumbwheel", 0.0, -4.0, 4.0, 0.5, false, &MPToPanelConnector);
 	SPSGimbalPitchThumbwheel.SetRotationRange(RAD * 293);
-	SPSGimbalYawThumbwheel.Register(PSH, "SPSGimbalYawThumbwheel", 0.0, -4.0, 4.0, 0.5, true);
+	SPSGimbalYawThumbwheel.Register(PSH, "SPSGimbalYawThumbwheel", 0.0, -4.0, 4.0, 0.5, true, &MPToPanelConnector);
 	SPSGimbalYawThumbwheel.SetRotationRange(RAD * 293);
 
 	SPSOxidPercentMeter.Register(PSH, "SPSOxidPercentMeter", 0, 0.999, 1, 0.999);
@@ -5664,12 +5723,12 @@ void Saturn::InitSwitches() {
 	CabinTempAutoManSwitch.SetCallback(new PanelSwitchCallback<SaturnGlycolCoolingController>(&GlycolCoolingController, 
 									   &SaturnGlycolCoolingController::CabinTempSwitchToggled));
 
-	CabinTempAutoControlSwitch.Register(PSH, "CabinTempAutoControlSwitch", 0, 9);
+	CabinTempAutoControlSwitch.Register(PSH, "CabinTempAutoControlSwitch", 0, 9, &MPToPanelConnector);
 	CabinTempAutoControlSwitch.SetCallback(new PanelSwitchCallback<SaturnGlycolCoolingController>(&GlycolCoolingController, 
 									       &SaturnGlycolCoolingController::CabinTempSwitchToggled));
 
-	SquelchAThumbwheel.Register(PSH, "SquelchAThumbwheel", 2, 9);
-	SquelchBThumbwheel.Register(PSH, "SquelchBThumbwheel", 2, 9);
+	SquelchAThumbwheel.Register(PSH, "SquelchAThumbwheel", 2, 9, &MPToPanelConnector);
+	SquelchBThumbwheel.Register(PSH, "SquelchBThumbwheel", 2, 9, &MPToPanelConnector);
 	
 	SPSTestSwitch.Register(PSH, "SPSTestSwitch", THREEPOSSWITCH_CENTER, SPRINGLOADEDSWITCH_CENTER);
 
@@ -5680,24 +5739,24 @@ void Saturn::InitSwitches() {
 	EcsGlycolPumpsSwitch.AddPosition(4, 356);
 	EcsGlycolPumpsSwitch.Register(PSH, "EcsGlycolPumpsSwitch", 2);
 
-	RightIntegralRotarySwitch.Register(PSH, "RightIntegralRotarySwitch", 0.0, 0.0, 10.0);
+	RightIntegralRotarySwitch.Register(PSH, "RightIntegralRotarySwitch", 0.0, 0.0, 10.0, &MPToPanelConnector);
 	RightIntegralRotarySwitch.SetRotationRange(300.0*RAD);
 	RightIntegralRotarySwitch.SetOffset(-160.0*RAD);
 
-	RightFloodRotarySwitch.Register(PSH, "RightFloodRotarySwitch", 0.0, 0.0, 10.0);
+	RightFloodRotarySwitch.Register(PSH, "RightFloodRotarySwitch", 0.0, 0.0, 10.0, &MPToPanelConnector);
 	RightFloodRotarySwitch.SetRotationRange(300.0*RAD);
 	RightFloodRotarySwitch.SetOffset(-160.0*RAD);
 
-	HighGainAntennaPitchPositionSwitch.Register(PSH, "HighGainAntennaPitchPositionSwitch", 6.0, 0.0, 12.0); //For now retain the 0-12 scaling of the bitmaps for checklist backwards compatibility
+	HighGainAntennaPitchPositionSwitch.Register(PSH, "HighGainAntennaPitchPositionSwitch", 6.0, 0.0, 12.0, &MPToPanelConnector); //For now retain the 0-12 scaling of the bitmaps for checklist backwards compatibility
 	HighGainAntennaPitchPositionSwitch.SetRotationRange(PI);
 
-	HighGainAntennaYawPositionSwitch.Register(PSH, "HighGainAntennaYawPositionSwitch", 12.0, 0.0, 24.0); //For now retain the 0-24 scaling of the bitmaps for checklist backwards compatibility
+	HighGainAntennaYawPositionSwitch.Register(PSH, "HighGainAntennaYawPositionSwitch", 12.0, 0.0, 24.0, &MPToPanelConnector); //For now retain the 0-24 scaling of the bitmaps for checklist backwards compatibility
 	HighGainAntennaYawPositionSwitch.SetRotationRange(PI2);
 	HighGainAntennaYawPositionSwitch.SetWraparound(true);
 
 	HighGainAntennaPitchMeter.Register(PSH, "HighGainAntennaPitchMeter", -90, 90, 5, 90);
 	HighGainAntennaStrengthMeter.Register(PSH, "HighGainAntennaStrengthMeter", 0, 100, 5);
-	HighGainAntennaYawMeter.Register(PSH, "HighGainAntennaYawMeter", 0, 360, 5, 0);
+	HighGainAntennaYawMeter.Register(PSH, "HighGainAntennaYawMeter", 0, 360, 5, 0, nullptr);
 
 	EMSFunctionSwitch.AddPosition(0,  179);
 	EMSFunctionSwitch.AddPosition(1,  211);
@@ -5714,8 +5773,8 @@ void Saturn::InitSwitches() {
 	EMSFunctionSwitch.Register(PSH, "EMSFunctionSwitch", 0);
 	EMSFunctionSwitch.SetWraparound(true);
 
-	EMSDvDisplay.Register(PSH, "EMSDvDisplay", -1000, 14000, 1, 0);
-	EMSScrollDisplay.Register(PSH, "EMSScrollDisplay",0, 0, 0, 0);	// dummy switch/display for checklist controller
+	EMSDvDisplay.Register(PSH, "EMSDvDisplay", -1000, 14000, 1, 0, &MPToPanelConnector);
+	EMSScrollDisplay.Register(PSH, "EMSScrollDisplay",0, 0, 0, 0, &MPToPanelConnector);	// dummy switch/display for checklist controller
 
 	VHFAntennaRotarySwitch.AddPosition(0, 303);
 	VHFAntennaRotarySwitch.AddPosition(1,   0);
@@ -5768,7 +5827,7 @@ void Saturn::InitSwitches() {
 	BatteryChargeRotary.AddPosition(3,  29);
 	BatteryChargeRotary.Register(PSH, "BatteryChargeRotary", 0);
 	
-	DockingProbeExtdRelSwitch.Register(PSH, "DockingProbeExtdRelSwitch", THREEPOSSWITCH_CENTER, false, SPRINGLOADEDSWITCH_CENTER_SPRINGUP);
+	DockingProbeExtdRelSwitch.Register(PSH, "DockingProbeExtdRelSwitch", THREEPOSSWITCH_CENTER, false, SPRINGLOADEDSWITCH_CENTER_SPRINGUP, &MPToPanelConnector);
 	DockingProbeExtdRelSwitch.SetDelayTime(5);
 	DockingProbeExtdRelSwitch.SetGuardResetsState(false);
 	DockingProbeRetractPrimSwitch.Register(PSH, "DockingProbeRetractPrimSwitch", THREEPOSSWITCH_CENTER);
@@ -5776,15 +5835,15 @@ void Saturn::InitSwitches() {
 	DockingProbeAIndicator.Register(PSH, "DockingProbeAIndicator", false);
 	DockingProbeBIndicator.Register(PSH, "DockingProbeBIndicator", false);
 
-	NumericRotarySwitch.Register(PSH, "NumericRotarySwitch", 4.0, 0.0, 10.0);
+	NumericRotarySwitch.Register(PSH, "NumericRotarySwitch", 4.0, 0.0, 10.0, &MPToPanelConnector);
 	NumericRotarySwitch.SetRotationRange(300.0*RAD);
 	NumericRotarySwitch.SetOffset(-150.0*RAD);
 
-	FloodRotarySwitch.Register(PSH, "FloodRotarySwitch", 10.0, 0.0, 10.0);
+	FloodRotarySwitch.Register(PSH, "FloodRotarySwitch", 10.0, 0.0, 10.0, &MPToPanelConnector);
 	FloodRotarySwitch.SetRotationRange(300.0*RAD);
 	FloodRotarySwitch.SetOffset(-150.0*RAD);
 
-	IntegralRotarySwitch.Register(PSH, "IntegralRotarySwitch", 4.0, 0.0, 10.0);
+	IntegralRotarySwitch.Register(PSH, "IntegralRotarySwitch", 4.0, 0.0, 10.0, &MPToPanelConnector);
 	IntegralRotarySwitch.SetRotationRange(300.0*RAD);
 	IntegralRotarySwitch.SetOffset(-150.0*RAD);
 
@@ -5843,7 +5902,7 @@ void Saturn::InitSwitches() {
 	OxygenRepressPackageRotary.AddPosition(2, 120);
 	OxygenRepressPackageRotary.Register(PSH, "OxygenRepressPackageRotary", 1);
 
-	ORDEALAltSetRotary.Register(PSH, "ORDEALAltSetRotary", 100.0, 10.0, 310.0);
+	ORDEALAltSetRotary.Register(PSH, "ORDEALAltSetRotary", 100.0, 10.0, 310.0, &MPToPanelConnector);
 	ORDEALAltSetRotary.SetRotationRange(285.0*RAD);
 	ORDEALAltSetRotary.SetOffset(-133.0*RAD);
 
@@ -5864,15 +5923,15 @@ void Saturn::InitSwitches() {
 	RightSystemTestRotarySwitch.AddPosition(3,   49);
 	RightSystemTestRotarySwitch.Register(PSH, "RightSystemTestRotarySwitch", 1);
 	
-	Panel100NumericRotarySwitch.Register(PSH, "Panel100NumericRotarySwitch", 4.0, 0.0, 10.0);
+	Panel100NumericRotarySwitch.Register(PSH, "Panel100NumericRotarySwitch", 4.0, 0.0, 10.0, &MPToPanelConnector);
 	Panel100NumericRotarySwitch.SetRotationRange(320.0*RAD);
 	Panel100NumericRotarySwitch.SetOffset(-160.0*RAD);
 
-	Panel100FloodRotarySwitch.Register(PSH, "Panel100FloodRotarySwitch", 0.0, 0.0, 10.0);
+	Panel100FloodRotarySwitch.Register(PSH, "Panel100FloodRotarySwitch", 0.0, 0.0, 10.0, &MPToPanelConnector);
 	Panel100FloodRotarySwitch.SetRotationRange(320.0*RAD);
 	Panel100FloodRotarySwitch.SetOffset(-160.0*RAD);
 
-	Panel100IntegralRotarySwitch.Register(PSH, "Panel100IntegralRotarySwitch", 4.0, 0.0, 10.0);
+	Panel100IntegralRotarySwitch.Register(PSH, "Panel100IntegralRotarySwitch", 4.0, 0.0, 10.0, &MPToPanelConnector);
 	Panel100IntegralRotarySwitch.SetRotationRange(320.0*RAD);
 	Panel100IntegralRotarySwitch.SetOffset(-160.0*RAD);
 
@@ -6001,7 +6060,7 @@ void Saturn::InitSwitches() {
 	SuitHeatExchangerSecondaryGlycolRotary.AddPosition(1, 90);
 	SuitHeatExchangerSecondaryGlycolRotary.Register(PSH, "SuitHeatExchangerSecondaryGlycolRotary", 0);
 
-	Panel382Cover.Register(PSH, "Panel382Cover",0, 0, 0, 0);	// dummy switch/display for checklist controller
+	Panel382Cover.Register(PSH, "Panel382Cover",0, 0, 0, 0, nullptr);	// dummy switch/display for checklist controller
 
 	SecondaryCabinTempValve.AddPosition(0,  0);
 	SecondaryCabinTempValve.AddPosition(1,  60);
@@ -6245,17 +6304,17 @@ void Saturn::InitSwitches() {
 
 	FLTPLCircuitBraker.Register(PSH, "FLTPLCircuitBraker", 1);
 
-	ModeIntercomVOXSensThumbwheelSwitch.Register(PSH, "ModeIntercomVOXSensThumbwheelSwitch", 5, 9);
+	ModeIntercomVOXSensThumbwheelSwitch.Register(PSH, "ModeIntercomVOXSensThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	PowerMasterVolumeThumbwheelSwitch.Register(PSH, "PowerMasterVolumeThumbwheelSwitch", 5, 9);
+	PowerMasterVolumeThumbwheelSwitch.Register(PSH, "PowerMasterVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	PadCommVolumeThumbwheelSwitch.Register(PSH, "PadCommVolumeThumbwheelSwitch", 5, 9);
+	PadCommVolumeThumbwheelSwitch.Register(PSH, "PadCommVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	IntercomVolumeThumbwheelSwitch.Register(PSH, "IntercomVolumeThumbwheelSwitch", 5, 9);
+	IntercomVolumeThumbwheelSwitch.Register(PSH, "IntercomVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	SBandVolumeThumbwheelSwitch.Register(PSH, "SBandVolumeThumbwheelSwitch", 5, 9);
+	SBandVolumeThumbwheelSwitch.Register(PSH, "SBandVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
-	VHFAMVolumeThumbwheelSwitch.Register(PSH, "VHFAMVolumeThumbwheelSwitch", 5, 9);
+	VHFAMVolumeThumbwheelSwitch.Register(PSH, "VHFAMVolumeThumbwheelSwitch", 5, 9, &MPToPanelConnector);
 
 	OpticsZeroSwitch.Register(PSH, "OpticsZeroSwitch", TOGGLESWITCH_UP);
 	ControllerSpeedSwitch.Register(PSH, "ControllerSpeedSwitch", THREEPOSSWITCH_DOWN);
@@ -6273,8 +6332,8 @@ void Saturn::InitSwitches() {
 	MinImpulseHandcontrollerSwitch.Register(PSH, "MinImpulseHandcontrollerSwitch", true);
 
 	GlycolToRadiatorsLever.Register(PSH, "GlycolToRadiatorsLever", 1);
-	CabinPressureReliefLever1.Register(PSH, "CabinPressureReliefLever1", 2, 2, true);
-	CabinPressureReliefLever2.Register(PSH, "CabinPressureReliefLever2", 2, 3, true);
+	CabinPressureReliefLever1.Register(PSH, "CabinPressureReliefLever1", 2, 2, true, &MPToPanelConnector);
+	CabinPressureReliefLever2.Register(PSH, "CabinPressureReliefLever2", 2, 3, true, &MPToPanelConnector);
 
 	SuitCircuitReturnValveLever.Register(PSH, "SuitCircuitReturnValveLever", 1);
 
@@ -6295,7 +6354,7 @@ void Saturn::InitSwitches() {
 	ORDEALLightingSwitch.Register(PSH, "ORDEALLightingSwitch", THREEPOSSWITCH_CENTER);
 	ORDEALModeSwitch.Register(PSH, "ORDEALModeSwitch", false);	
 	ORDEALSlewSwitch.Register(PSH, "ORDEALSlewSwitch", THREEPOSSWITCH_CENTER, SPRINGLOADEDSWITCH_CENTER);
-	PanelOrdeal.Register(PSH, "PanelOrdeal",0, 0, 0, 0);	// dummy switch/display for checklist controller
+	PanelOrdeal.Register(PSH, "PanelOrdeal",0, 0, 0, 0, &MPToPanelConnector);	// dummy switch/display for checklist controller
 
 	RNDZXPDRSwitch.Register(PSH, "RNDZXPDRSwitch", TOGGLESWITCH_DOWN, SPRINGLOADEDSWITCH_DOWN);
 
@@ -6307,7 +6366,7 @@ void Saturn::InitSwitches() {
 	Panel100FloodDimSwitch.Register(PSH, "Panel100FloodDimSwitch", TOGGLESWITCH_UP);	
 	Panel100FloodFixedSwitch.Register(PSH, "Panel100FloodFixedSwitch", false);
 	GNPowerOpticsSwitch.Register(PSH, "GNPowerOpticsSwitch", false);
-	GNPowerIMUSwitch.Register(PSH, "GNPowerIMUSwitch", TOGGLESWITCH_DOWN, false);
+	GNPowerIMUSwitch.Register(PSH, "GNPowerIMUSwitch", TOGGLESWITCH_DOWN, false, false, &MPToPanelConnector);
 	GNPowerIMUSwitch.SetGuardResetsState(false);
 	Panel100RNDZXPDRSwitch.Register(PSH, "Panel100RNDZXPDRSwitch", THREEPOSSWITCH_CENTER);
 
@@ -6480,7 +6539,7 @@ void Saturn::InitSwitches() {
 	HatchEmergencyO2ValveSwitch.Register(PSH, "HatchEmergencyO2ValveSwitch", 0);
 	HatchRepressO2ValveSwitch.Register(PSH, "HatchRepressO2ValveSwitch", THREEPOSSWITCH_DOWN);
 	HatchOxygenRepressPressMeter.Register(PSH, "HatchOxygenRepressPressMeter", 0, 1200, 1, 900);
-	Panel600.Register(PSH, "Panel600",0, 0, 0, 0);	// dummy switch/display for checklist controller
+	Panel600.Register(PSH, "Panel600",0, 0, 0, 0, nullptr);	// dummy switch/display for checklist controller
 
 	DskySwitchVerb.Register(PSH, "DskySwitchVerb", false);
 	DskySwitchNoun.Register(PSH, "DskySwitchNoun", false);
@@ -6565,7 +6624,7 @@ void Saturn::InitSwitches() {
 	DskySwitchProceed.SetDelayTime(1.5);
 	Dsky2SwitchProceed.SetDelayTime(1.5);
 
-	ASCPRollSwitch.Register(PSH, "ASCPRollSwitch", 0, 0, 0, 0);	// dummy switch/display for checklist controller
-	ASCPPitchSwitch.Register(PSH, "ASCPPitchSwitch", 0, 0, 0, 0);
-	ASCPYawSwitch.Register(PSH, "ASCPYawSwitch", 0, 0, 0, 0);
+	ASCPRollSwitch.Register(PSH, "ASCPRollSwitch", 0, 0, 0, 0, &MPToPanelConnector);	// dummy switch/display for checklist controller
+	ASCPPitchSwitch.Register(PSH, "ASCPPitchSwitch", 0, 0, 0, 0, &MPToPanelConnector);
+	ASCPYawSwitch.Register(PSH, "ASCPYawSwitch", 0, 0, 0, 0, &MPToPanelConnector);
 }

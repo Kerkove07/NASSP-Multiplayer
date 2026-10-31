@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * CSM REACTION CONTROL SYSTEM (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - csmrcs.h
+  * 
+  * Changes: added multiplayer state synchronization
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #if !defined(_PA_CSMRCS_H)
 #define _PA_CSMRCS_H
 
@@ -121,7 +135,12 @@ protected:
 
 	THRUSTER_HANDLE *thrusters;
 	h_Radiator *package;
+
+	// [MULTIPLAYER]
+	Connector MPToSMRCSConnector;
+	// [/MULTIPLAYER]
 };
+
 
 ///
 /// \ingroup Propulsion
@@ -169,6 +188,10 @@ protected:
 	h_Radiator *heliumTank;
 	CMRCSPropellantSource *interconnectedSystem;
 	e_object *purgePower, *purgePyroPower, *isolPower;
+
+	// [MULTIPLAYER]
+	Connector MPToCMRCSConnector;
+	// [/MULTIPLAYER]
 };
 
 //

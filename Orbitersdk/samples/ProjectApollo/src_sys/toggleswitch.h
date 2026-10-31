@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * TOGGLESWITCH HANDLING (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - toggleswitch.h
+  *
+  * Changes: added multiplayer state synchronization
+  *			 (2026-10)
+  * 
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #pragma once
 
 #include "Orbitersdk.h"
@@ -80,8 +94,11 @@
 class SwitchRow;
 class PanelSwitchScenarioHandler;
 class PanelSwitchCallbackInterface;
+// [MP]
+class MP_PanelConnector;
+// [/MP]
+class PanelSwitchCallbackInterface;   
 
-class PanelSwitchCallbackInterface;
 ///
 /// This is the base class for panel items. Items using this class can be looked up by name,
 /// and are automatically saved into scenario files and loaded from them without us having to
@@ -189,6 +206,10 @@ public:
 	///
 	virtual int GetState();
 
+	// [MULTIPLAYER]
+	virtual int GetGuardState();
+	// [/MULTIPLAYER]
+
 	///
 	/// \brief Set current state.
 	/// \param value State to set.
@@ -270,6 +291,10 @@ protected:
 	/// \brief State that the switch failed in.
 	///
 	int FailedState;
+
+	// [MULTIPLAYER]
+	int guardState;
+	// [MULTIPLAYER]
 
 	///
 	/// \brief Name of the switch.
@@ -963,7 +988,7 @@ public:
 	GuardedToggleSwitch();
 	virtual ~GuardedToggleSwitch();
 
-	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, int springloaded = SPRINGLOADEDSWITCH_NONE);
+	virtual void Register(PanelSwitchScenarioHandler& scnh, char* n, int defaultState, int defaultGuardState, int springloaded = SPRINGLOADEDSWITCH_NONE, MP_PanelConnector* MPToPanelConnector = nullptr);
 	void InitGuard(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf,
 				   int xOffset = 0, int yOffset = 0);
 	void DrawSwitch(SURFHANDLE DrawSurface);
@@ -989,7 +1014,7 @@ protected:
 	int guardY;
 	int guardWidth;
 	int guardHeight;
-	int guardState;
+	//int guardState;
 	bool guardResetsState;
 
 	SURFHANDLE guardSurface;
@@ -998,6 +1023,10 @@ protected:
 	int guardXOffset;
 	int guardYOffset;
 	Sound guardClick;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 class AGCGuardedToggleSwitch : public GuardedToggleSwitch {
@@ -1096,7 +1125,7 @@ public:
 	void Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf, SwitchRow &row,
 		int xoffset = 0, int yoffset = 0, int lxoffset = 0, int lyoffset = 0);
 
-	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState);
+	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, MP_PanelConnector* MPToPanelConnector = nullptr);
 	void InitGuard(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE dsurf,
 				   int xOffset = 0, int yOffset = 0);
 	void DrawSwitch(SURFHANDLE DrawSurface);
@@ -1125,7 +1154,7 @@ protected:
 	int guardY;
 	int guardWidth;
 	int guardHeight;
-	int guardState;
+	//int guardState;
 	bool guardResetsState;
 
 	int litOffsetX;
@@ -1139,6 +1168,10 @@ protected:
 	int guardXOffset;
 	int guardYOffset;
 	Sound guardClick;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 
@@ -1149,7 +1182,7 @@ public:
 	virtual ~GuardedThreePosSwitch();
 
 	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int defaultGuardState, 
-				  int springloaded = SPRINGLOADEDSWITCH_NONE);
+				  int springloaded = SPRINGLOADEDSWITCH_NONE, MP_PanelConnector* MPToPanelConnector = nullptr);
 	void InitGuard(int xp, int yp, int w, int h, SURFHANDLE surf,
 				   int xOffset = 0, int yOffset = 0);
 	void DrawSwitch(SURFHANDLE DrawSurface);
@@ -1163,7 +1196,9 @@ public:
 	void SetGuardResetsState(bool s) { guardResetsState = s; };
 	void Unguard() { guardState = 1; };
 	void Guard();
-
+	// [MULTIPLAYER]
+	bool GetIsGuarded();
+	// [/MULTIPLAYER]
 	void DefineVCAnimations(UINT vc_idx);
 	void SetReference(const VECTOR3& ref, const VECTOR3& coverref, const VECTOR3& dir, const VECTOR3& coverdir);
 	void DefineMeshGroup(UINT _grpIndex, UINT _coverGrpIndex);
@@ -1173,12 +1208,16 @@ protected:
 	int guardY;
 	int guardWidth;
 	int guardHeight;
-	int guardState;
+	//int guardState;
 	bool guardResetsState;
 	SURFHANDLE guardSurface;
 	int guardXOffset;
 	int guardYOffset;
 	Sound guardClick;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 //Any switch that does not have a discrete position
@@ -1188,7 +1227,7 @@ public:
 	ContinuousSwitch();
 	virtual ~ContinuousSwitch();
 
-	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultVal, double minVal, double maxVal);
+	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultVal, double minVal, double maxVal, MP_PanelConnector* MPToPanelConnector = nullptr); //[MP]
 	virtual void Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf, SwitchRow &row);
 
 	void SetInitValue(double defaultValue);
@@ -1246,6 +1285,10 @@ protected:
 	VESSEL *OurVessel;
 	SwitchRow *switchRow;
 	Sound sclick;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 class ContinuousThumbwheelSwitch : public ContinuousSwitch
@@ -1254,7 +1297,7 @@ public:
 	ContinuousThumbwheelSwitch();
 	virtual ~ContinuousThumbwheelSwitch();
 
-	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultValue, double minValue, double maxValue, double clickIncr, bool horizontal = false);
+	virtual void Register(PanelSwitchScenarioHandler &scnh, char *n, double defaultValue, double minValue, double maxValue, double clickIncr, bool horizontal = false, MP_PanelConnector* MPToPanelConnector = nullptr);
 	virtual void Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf, SwitchRow &row);
 
 	void SetState(int value);
@@ -1432,8 +1475,8 @@ public:
 	MeterSwitch();
 	virtual ~MeterSwitch();
 
-	void Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time, double defaultValue);
-	void Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time);
+	void Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time, double defaultValue, MP_PanelConnector* MPToPanelConnector = nullptr);
+	void Register(PanelSwitchScenarioHandler &scnh, char *n, double min, double max, double time, MP_PanelConnector* MPToPanelConnector = nullptr);
 	void Init(SwitchRow &row);
 	void DrawSwitch(SURFHANDLE drawSurface);
 	bool CheckMouseClick(int event, int mx, int my);
@@ -1464,6 +1507,10 @@ protected:
 	//VC Stuff
 	UINT grpIndex;
 	UINT anim_switch;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 class CurvedMeter : public MeterSwitch {
@@ -1502,8 +1549,8 @@ public:
 	ThumbwheelSwitch();
 	virtual ~ThumbwheelSwitch();
 
-	void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState);
-	void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState, bool horizontal);
+	void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState, MP_PanelConnector* MPToPanelConnector); // [MP]
+	void Register(PanelSwitchScenarioHandler &scnh, char *n, int defaultState, int maximumState, bool horizontal, MP_PanelConnector* MPToPanelConnector); // [MP]
 	void Init(int xp, int yp, int w, int h, SURFHANDLE surf, SURFHANDLE bsurf, SwitchRow &row);
 	void DrawSwitch(SURFHANDLE drawSurface);
 	void DrawSwitchVC(int id, int event, SURFHANDLE drawSurface);
@@ -1541,6 +1588,10 @@ protected:
 	UINT grpIndex;
 	UINT anim_switch;
 	double RotationRange;
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [MP]
 };
 
 class HandcontrollerSwitch: public PanelSwitchItem {

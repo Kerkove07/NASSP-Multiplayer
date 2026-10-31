@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SATURN-SPECIFIC SWITCHES (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - satswitches.h
+  * 
+  * Changes: added multiplayer state synchronization
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 class Saturn;
 class DCBusController;
 class BMAG;
@@ -702,7 +716,7 @@ protected:
 
 class SaturnEMSDvDisplay : public MeterSwitch {
 public:
-	void Init(SURFHANDLE digits, SwitchRow &row, Saturn *s);
+	void Init(SURFHANDLE digits, SwitchRow &row, Saturn *s, MP_PanelConnector* MPToPanelConnector);
 	double QueryValue();
 	void DoDrawSwitch(double v, SURFHANDLE drawSurface);
 	void DoDrawSwitchVC(SURFHANDLE surf, double v, SURFHANDLE drawSurface);
@@ -715,6 +729,8 @@ protected:
 
 	SURFHANDLE Digits;
 	Saturn *Sat;
+
+	MP_PanelConnector* pConn;
 };
 
 
@@ -802,10 +818,13 @@ protected:
 class SaturnEMSDvSetSwitch {
 
 public:
-	SaturnEMSDvSetSwitch(Sound &clicksound);
+	SaturnEMSDvSetSwitch(Sound &clicksound, MP_PanelConnector* MPToPanelConnector);
 	virtual ~SaturnEMSDvSetSwitch();
 	void Init(Saturn *s) { sat = s; };
 	int GetPosition() { return position; };
+	// [MULTIPLAYER]
+	void SetPosition(int p) { position = p; };
+	// [/MULTIPLAYER]
 	bool CheckMouseClick(int event, int mx, int my);
 	bool CheckMouseClickVC(int event, VECTOR3 &p);
 
@@ -816,6 +835,7 @@ public:
 
 protected:
 	int position;
+	bool hold;
 
 	const VECTOR3& GetReference() const;
 
@@ -829,6 +849,10 @@ protected:
 
 	Saturn *sat;
 	Sound &ClickSound;
+
+	// [MULTIPLAYER]
+	MP_PanelConnector* pConn;
+	// [/MULTIPLAYER]
 };
 
 class SaturnCabinPressureReliefLever : public ThumbwheelSwitch
@@ -855,7 +879,7 @@ public:
 	void DefineVCAnimations(UINT vc_idx);
 
 protected:
-	int guardState;
+	//int guardState;
 	UINT guardAnim;
 
 	Sound guardClick;

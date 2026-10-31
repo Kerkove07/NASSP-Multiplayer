@@ -22,6 +22,20 @@
 
   **************************************************************************/
 
+	/*
+	* Modifications and additions for NASSP Multiplayer (unofficial fork):
+	* CONNECTOR CLASS
+	* Copyright (c) 2026 Cody Kerkove
+	*
+	* This file contains code adapted from the following NASSP file(s):
+	*   - connector.cpp (Connector Class)
+	* 
+	* Changes: added multiplayer state synchronization
+    *		   (2026-10)
+	*
+	* SPDX-License-Identifier: GPL-2.0-or-later
+	*/
+
 // To force Orbitersdk.h to use <fstream> in any compiler version
 #pragma include_alias( <fstream.h>, <fstream> )
 #include "Orbitersdk.h"
@@ -31,8 +45,13 @@
 #include "PanelSDK/PanelSDK.h"
 #include "PanelSDK/Internals/Esystems.h"
 
+// [MP]
+#include "dsky.h"
+// [/MP]
+
 #include "powersource.h"
 #include "connector.h"
+
 
 #include <stdio.h>
 #include <string.h>

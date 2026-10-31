@@ -21,6 +21,22 @@
   See http://nassp.sourceforge.net/license/ for more details.
 
   **************************************************************************/
+
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * LEM (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - LEM.cpp
+  * 
+  * Changes: Added Multiplayer connector to LEM
+  *	         Added Multiplayer connector to DSKY
+  *		     Client State Sync for Mission Timer
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
 #define ORBITER_MODULE
 
 // To force Orbitersdk.h to use <fstream> in any compiler version
@@ -380,7 +396,10 @@ LEM::LEM(OBJHANDLE hObj, int fmodel) : Payload (hObj, fmodel),
 	ED28VBusB("ED-28V-BusB", NULL),
 	ACBusA("AC-Bus-A",NULL),
 	ACBusB("AC-Bus-B",NULL),
+	// [MP]
 	dsky(soundlib, agc, Panelsdk, 015),
+	MPToPanelConnector(MainPanel, this),
+	// [/MP]
 	LandingGearPyros("Landing-Gear-Pyros", Panelsdk),
 	LandingGearPyrosFeeder("Landing-Gear-Pyros-Feeder", Panelsdk),
 	StagingBoltsPyros("Staging-Bolts-Pyros", Panelsdk),
@@ -523,6 +542,9 @@ LEM::~LEM()
 void LEM::Init()
 
 {
+	// [MP]
+	MPToDskyConnector = dsky.getMPConnector();
+	
 	DebugLineClearTimer = 0;
 
 	ToggleEva=false;
@@ -692,6 +714,10 @@ void LEM::Init()
 	// Register visible connectors.
 	//
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &MFDToPanelConnector);
+	// [MP]
+	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &MPToPanelConnector);
+	RegisterConnector(VIRTUAL_CONNECTOR_PORT, MPToDskyConnector);
+	// [/MP]
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &cdi);
 	RegisterConnector(0, &LEMToCSMConnector);
 	RegisterConnector(0, &CSMToLEMECSConnector);
@@ -1528,6 +1554,18 @@ void LEM::clbkPreStep (double simt, double simdt, double mjd) {
 	}
 
 	if (spaceeva)UpdateSpaceEVA(); //if lmp eva active (vessel created), enables EVA Timestep
+
+	// [MP]
+	// Check if mission timer sync is ready
+	if (MPToPanelConnector.getIsClient())
+	{
+		if (oapiGetSimTime() >= MPToPanelConnector.GetSyncTime())
+		{
+			MissionTime = MPToPanelConnector.GetMissionTime();
+			MissionTimerDisplay.SetTime(MissionTime);
+		}
+	}
+	// [/MP]
 }
 
 
@@ -1625,16 +1663,40 @@ void LEM::clbkPostStep(double simt, double simdt, double mjd)
 		ToggleEva = false; //Always reset, in case the condition wasn't met
 
 		double vsAlt = GetAltitude(ALTMODE_GROUND);
-		if (!Landed && (GroundContact() || (vsAlt < 1.0))) {
+		// [MP] Let the Host decide when the LEM is landed! O.o
+		//if (!MPToPanelConnector.getIsClient())
+		{//
+			if (!Landed && (GroundContact() || (vsAlt < 1.0))) {
 
 #ifdef DIRECTSOUNDENABLED
-			if (!sevent.isValid())
+				if (!sevent.isValid())
 #endif
-				Scontact.play();
+					Scontact.play();
 
-			SetLmLandedMesh();
+				ConnectorMessage cm;
+				cm.destination = MP_PANEL_INTERFACE;
+				cm.messageType = MP_PanelConnector::MP_PANEL_LANDED;
+				cm.val1.bValue = true;
+
+				MPToPanelConnector.SendMessage(cm);
+
+				SetLmLandedMesh();
+			}
 		}
 
+		/*else
+		{
+			if (MPToPanelConnector.getLandedState())
+			{
+
+#ifdef DIRECTSOUNDENABLED
+				if (!sevent.isValid())
+#endif
+					Scontact.play();
+
+				SetLmLandedMesh();
+			}
+		}*/
 		//sprintf (oapiDebugString(),"FUEL %d",GetPropellantMass(ph_Dsc));
 	}
 

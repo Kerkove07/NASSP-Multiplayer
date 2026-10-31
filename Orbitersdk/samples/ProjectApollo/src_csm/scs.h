@@ -23,6 +23,20 @@
 
   **************************************************************************/
 
+  /*
+  * Modifications and additions for NASSP Multiplayer (unofficial fork):
+  * SCS SIMULATION (MULTIPLAYER)
+  * Copyright (c) 2026 Cody Kerkove
+  *
+  * This file contains code adapted from the following NASSP file(s):
+  *   - scs.h
+  * 
+  * Changes: added multiplayer state synchronization
+  *			 (2026-10)
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+
 #pragma once
 
 #include "DelayTimer.h"
@@ -208,7 +222,7 @@ class ASCP {
 	
 public: // We use these inside a timestep, so everything is public to make data access as fast as possible.
 	ASCP(Sound &clicksound);									   // Cons
-	void Init(Saturn *vessel);									   // Initialization
+	void Init(Saturn *vessel, MP_PanelConnector* MPToPanelConnector);									   // Initialization
 	void TimeStep(double simdt);						           // Timestep
 	bool PaintRollDisplay(SURFHANDLE surf, SURFHANDLE digits, int xTexMul = 1);     // Update panel image
 	bool PaintPitchDisplay(SURFHANDLE surf, SURFHANDLE digits, int xTexMul = 1);    // Update panel image
@@ -255,6 +269,10 @@ protected:
 	double CalcRollEulerAttitudeSetError();
 	double CalcPitchEulerAttitudeSetError();
 	double CalcYawEulerAttitudeSetError();
+
+	// [MP]
+	MP_PanelConnector* pConn;
+	// [/MP]
 };
 
 
@@ -856,6 +874,10 @@ public:
 	void SetReference(const VECTOR3& ref, const VECTOR3& _dir);
 	void DefineMeshGroup(UINT _grp);
 	void DrawSwitchVC(int id, int event, SURFHANDLE surf);
+
+	// [MP]
+	void Set_MP_IsClient(bool bYN);
+	// [/MP]
 	
 protected:
 	bool IsPowered();
@@ -919,6 +941,10 @@ protected:
 
 	friend class SaturnEMSDvDisplay;
 	friend class SaturnEMSScrollDisplay;
+
+	//[MP]
+	bool MP_isClient;
+	//[/MP]
 };
 
 PBITMAPINFO CreateBitmapInfoStruct(HBITMAP hBmp);
