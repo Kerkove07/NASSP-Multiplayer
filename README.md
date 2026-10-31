@@ -1,3 +1,31 @@
+NASSP MULTIPLAYER
+
+NOTE: This project is in a very early state.  A lot of documentation that will be needed doesn't exist yet.  With that said, a lot of things do work and we have been able to fly several multiplayer scenarios (Launch, Insertion, TLI, TDE, LOI) in the CSM without issue.  The LEM syncs position, velocity, orientation but a lot of the systems are still in progress (ACA, TTCA, DSKY, FDAI, DEDA, gauges, etc.)
+
+Main changes:
+- MULTIPLAYER PLUGIN MODULE
+  - Networking:  Uses ZeroMQ.
+  - Multiplayer MFD:  Host and Join sessions.  Peer-to-peer only at this time.  No matchmaking.
+  - Framework in-place to syncronize switches, displays, some systems and physics state.
+  - WIP:  Packet Serialization and networking optimization.
+
+- SATURN
+  - Most switches and displays syncronized between host and client.
+  - All systems run in parallel (Host & Client) until CSM/SIVB separation.
+
+- LEM
+  - Most switches work.
+  - FDAIs, gauges, DSKY and DEDA are in progress.
+
+Will update the README with build instructions and eventually put out a release.
+
+- Updated project/build files for the new module
+- License headers and notices added (GPL-2.0-or-later; see
+  NASSP MULTIPLAYER - LICENSE
+  ZEROMQ - LICENSE)
+
+Unofficial alpha. Not affiliated with or endorsed by the NASSP project.
+
 Project Apollo - NASSP (also known as NASSP or formerly NCPP) is an add-on for 
 the Orbiter space flight simulator. Project Apollo simulates the Apollo
 missions to Earth orbit and the Moon, and is slowly expanding to 
