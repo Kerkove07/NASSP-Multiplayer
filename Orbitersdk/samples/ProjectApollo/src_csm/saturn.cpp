@@ -3505,7 +3505,7 @@ void Saturn::GenericTimestep(double simt, double simdt, double mjd)
 
 	if (noiselat > 0.0 || (vAccel.x*vAccel.x + vAccel.y*vAccel.y + vAccel.z*vAccel.z) > 0.01) {
 		// [MP]
-		//if (!MPToPanelConnector.getSyncClient())
+		if (!MPToPanelConnector.getSyncClient())
 			JostleViewpoint(noiselat, noiselong, noisefreq, simdt, -seatacc.x / 200.0, -seatacc.y / 200.0, -seatacc.z / 300.0);
 		// [/MP]
 		LastVPAccelTime = SimulatedTime;
