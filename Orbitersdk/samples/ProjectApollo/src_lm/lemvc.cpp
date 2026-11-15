@@ -2278,13 +2278,26 @@ bool LEM::clbkVCRedrawEvent(int id, int event, SURFHANDLE surf)
 		else {
 			SetPowerFailureLight(VC_MAT_L03_PwrFail_DPSpress, 0.0); // Light Off
 		}
+		
+		// [MP] Power Failure Lights
+		if (!MPToPanelConnector.getIsClient())
+		{
+			if (RadarTape.PowerSignalMonOn() == true) { // Power comes internally, not dimmable
+				SetPowerFailureLight(VC_MAT_L21_PwrFail_RangeRate, 5.0); // Light On
+				MPToPanelConnector.lem_radar.light = 5.0;
+			}
+			else {
+				SetPowerFailureLight(VC_MAT_L21_PwrFail_RangeRate, 0.0); // Light Off
+				MPToPanelConnector.lem_radar.light = 0.0;
+			}
+		}
 
-		if (RadarTape.PowerSignalMonOn() == true) { // Power comes internally, not dimmable
-			SetPowerFailureLight(VC_MAT_L21_PwrFail_RangeRate, 5.0); // Light On
+		else
+		{
+			SetPowerFailureLight(VC_MAT_L21_PwrFail_RangeRate, MPToPanelConnector.lem_radar.light);
 		}
-		else {
-			SetPowerFailureLight(VC_MAT_L21_PwrFail_RangeRate, 0.0); // Light Off
-		}
+		// [/MP]
+
 		return true;
 
 	case AID_VC_PWRFAIL_LIGHTS_P2:

@@ -33,7 +33,7 @@
   *   - lemsystems.cpp
   * 
   * Changes: added multiplayer state synchronization
-  *			 (2026-10)
+  *			(2026-10)
   *
   * SPDX-License-Identifier: GPL-2.0-or-later
   */
@@ -1057,6 +1057,37 @@ void LEM::JoystickTimestep(double simdt)
 			}
 		}
 
+		// [MP]
+		if (MPToPanelConnector.getIsClient())
+		{
+			if (MPToPanelConnector.rhc.x != rhc_pos[0] || MPToPanelConnector.rhc.y != rhc_pos[1] || MPToPanelConnector.rhc.z != rhc_pos[2])
+			{
+				MPToPanelConnector.rhc.x = rhc_pos[0];
+				MPToPanelConnector.rhc.y = rhc_pos[1];
+				MPToPanelConnector.rhc.z = rhc_pos[2];
+
+				ConnectorMessage cm;
+				cm.destination = MP_PANEL_INTERFACE;
+				cm.messageType = MP_PanelConnector::MP_PANEL_ACA_CHANGED;
+				cm.val1.iValue = rhc_pos[0];
+				cm.val2.iValue = rhc_pos[1];
+				cm.val3.iValue = rhc_pos[2];
+
+				MPToPanelConnector.SendMessage(cm);
+			}
+		}
+
+		else
+		{
+			if (rhc_pos[0] == 32768 && rhc_pos[1] == 32768 && rhc_pos[2] == 32768)
+			{
+				rhc_pos[0] = MPToPanelConnector.rhc.x;
+				rhc_pos[1] = MPToPanelConnector.rhc.y;
+				rhc_pos[2] = MPToPanelConnector.rhc.z;
+			}
+		}
+		// [/MP]
+
 		CDR_ACA.Timestep(rhc_pos);
 
 		if (CDR_ACA.GetOutOfDetent())
@@ -1362,6 +1393,37 @@ void LEM::JoystickTimestep(double simdt)
 		ttca_pos[1] = thc_x_pos;
 		ttca_pos[2] = thc_z_pos;
 
+		// [MP]
+		if (MPToPanelConnector.getIsClient())
+		{
+			if (MPToPanelConnector.thc.x != ttca_pos[0] || MPToPanelConnector.thc.y != ttca_pos[1] || MPToPanelConnector.thc.z != ttca_pos[2])
+			{
+				MPToPanelConnector.thc.x = ttca_pos[0];
+				MPToPanelConnector.thc.y = ttca_pos[1];
+				MPToPanelConnector.thc.z = ttca_pos[2];
+
+				ConnectorMessage cm;
+				cm.destination = MP_PANEL_INTERFACE;
+				cm.messageType = MP_PanelConnector::MP_PANEL_TTCA_CHANGED;
+				cm.val1.iValue = ttca_pos[0];
+				cm.val2.iValue = ttca_pos[1];
+				cm.val3.iValue = ttca_pos[2];
+
+				MPToPanelConnector.SendMessage(cm);
+			}
+		}
+
+		else
+		{
+			if (ttca_pos[0] == 32768 && ttca_pos[1] == 32768 && ttca_pos[2] == 32768)
+			{
+				ttca_pos[0] = MPToPanelConnector.thc.x;
+				ttca_pos[1] = MPToPanelConnector.thc.y;
+				ttca_pos[2] = MPToPanelConnector.thc.z;
+			}
+		}
+		// [/MP]
+
 		CDR_TTCA.Timestep(ttca_pos, thc_tjt_pos, ttca_realistic_throttle, ttca_throttle_pos_dig);
 
 		if (LeftTTCATranslSwitch.IsUp())
@@ -1537,6 +1599,7 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	dsky.Timestep(MissionTime);								// Do work
 	asa.Timestep(simdt);									// Do work
 	if (!MPToPanelConnector.getIsClient()) aea.Timestep(MissionTime, simdt);
+	// [/MP]
 	deda.Timestep(simdt);
 	imu.Timestep(simdt);								// Do work
 	tcdu.Timestep(simdt);
@@ -1557,8 +1620,9 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	ordeal.Timestep(simdt);
 	mechanicalAccelerometer.Timestep(simdt);
 
+	SyncFDAI(simt, simdt);
+
 	//[MP] FDAI SYNC
-	//SyncFDAI(simt, simdt);
 	// HOST: FDAI
 	if (!MPToPanelConnector.getIsClient())
 	{
@@ -1597,8 +1661,8 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	// Client FDAI
 	else
 	{
-		fdaiLeft.Timestep(simt, simdt);
-		fdaiRight.Timestep(simt, simdt);
+		fdaiLeft.Timestep(MissionTime, simdt);
+		fdaiRight.Timestep(MissionTime, simdt);
 	}
 	//[/MP]
 
@@ -1607,11 +1671,76 @@ void LEM::SystemsTimestep(double simt, double simdt)
 	JoystickTimestep(simdt);
 	eds.Timestep(simdt);
 	optics.Timestep(simdt);
-	LR.Timestep(simdt);
-	RR.Timestep(simdt);
-	RadarTape.Timestep(simdt);
-	crossPointerLeft.Timestep(simdt);
-	crossPointerRight.Timestep(simdt);
+
+	// [MP] Radars/CrossPointers - Host
+	if (!MPToPanelConnector.getIsClient())
+	{
+		LR.Timestep(simdt);
+		RR.Timestep(simdt);
+		if (RadarTape.GetTapeAltitude() / 3.2808399 != MPToPanelConnector.lem_radar.range ||
+			LR.GetAltitudeRate() / 3.2808399 != MPToPanelConnector.lem_radar.rate)
+		{
+			MPToPanelConnector.lem_radar.range = RadarTape.GetTapeAltitude() / 3.2808399;
+			MPToPanelConnector.lem_radar.rate = RadarTape.GetTapeAltitudeRate() / 3.2808399;
+
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_RADAR_CHANGED;
+			cm.val1.dValue = MPToPanelConnector.lem_radar.range;
+			cm.val2.dValue = MPToPanelConnector.lem_radar.rate;
+			cm.val3.dValue = MPToPanelConnector.lem_radar.light;
+
+			MPToPanelConnector.SendMessage(cm);
+		}
+
+		RadarTape.Timestep(simdt, false);
+
+		// Cross pointer - Host
+		double cpl[2];
+		double cpr[2];
+	
+		crossPointerLeft.Timestep(simdt, false);
+		crossPointerLeft.GetVelocities(cpl[0], cpl[1]);
+		
+		crossPointerRight.Timestep(simdt, false);
+		crossPointerLeft.GetVelocities(cpr[0], cpr[1]);
+
+		if (cpl[0] != MPToPanelConnector.lem_cross.lx ||
+			cpl[1] != MPToPanelConnector.lem_cross.ly ||
+			cpr[0] != MPToPanelConnector.lem_cross.rx ||
+			cpr[1] != MPToPanelConnector.lem_cross.ly)
+		{
+			MPToPanelConnector.lem_cross.lx = cpl[0];
+			MPToPanelConnector.lem_cross.ly = cpl[1];
+			MPToPanelConnector.lem_cross.rx = cpr[0];
+			MPToPanelConnector.lem_cross.ry = cpr[1];
+			
+			ConnectorMessage cm;
+			cm.destination = MP_PANEL_INTERFACE;
+			cm.messageType = MP_PanelConnector::MP_PANEL_CROSSPOINTER_CHANGED;
+			cm.val1.vValue = { MPToPanelConnector.lem_cross.lx, MPToPanelConnector.lem_cross.ly,MPToPanelConnector.lem_cross.lLight };
+			cm.val2.vValue = { MPToPanelConnector.lem_cross.rx, MPToPanelConnector.lem_cross.ry,MPToPanelConnector.lem_cross.rLight };
+
+			MPToPanelConnector.SendMessage(cm);
+		}
+	}
+
+	// Radars - Client
+	else
+	{
+		RadarTape.setRange(MPToPanelConnector.lem_radar.range);
+		RadarTape.setRate(MPToPanelConnector.lem_radar.rate);
+
+		RadarTape.Timestep(simdt, true);
+
+		crossPointerLeft.setVelocities(MPToPanelConnector.lem_cross.lx, MPToPanelConnector.lem_cross.ly);
+		crossPointerLeft.Timestep(simdt, true);
+
+		crossPointerRight.setVelocities(MPToPanelConnector.lem_cross.rx, MPToPanelConnector.lem_cross.ry);
+		crossPointerRight.Timestep(simdt, true);
+	}
+	// [/MP]
+
 	SBandSteerable.Timestep(simdt);
 	SBandErectable.Timestep();
 	omni_fwd.Timestep();
@@ -3046,51 +3175,55 @@ double LEM_RadarTape::GetRRRate() //Applies roundoff error for RR data into tape
 	return (lem->RR.GetRadarRate() * (-19.9 / -20.0));
 }
 
-void LEM_RadarTape::Timestep(double simdt) {
+// [MP]
+void LEM_RadarTape::Timestep(double simdt, bool multiplayer) {
 
-	if (!IsPowered())
+	if (!multiplayer)
 	{
-		return;
-	}
-
-	if (lem->AltRngMonSwitch.GetState() == TOGGLESWITCH_UP)
-	{
-		setRange(GetRRRange());
-		setRate(GetRRRate());
-	}
-	else
-	{
-		if (*lem->Panel2RelayBox.Get9K29A()) //LR
+		if (!IsPowered())
 		{
-			if (lem->LR.IsRangeDataGood())
+			return;
+		}
+
+		if (lem->AltRngMonSwitch.GetState() == TOGGLESWITCH_UP)
+		{
+			setRange(GetRRRange());
+			setRate(GetRRRate());
+		}
+		else
+		{
+			if (*lem->Panel2RelayBox.Get9K29A()) //LR
 			{
-				setRange(GetLRAltitude() * cos(Radians(15))); //Tapemeter slant range bias, multiplied by cos 15 deg
-			}
-			else
-			{
-				setRange(0);
-			}
-			if (lem->LR.IsVelocityDataGood())
-			{
-				if ((lem->pMission->GetLMNumber()) == 3)
+				if (lem->LR.IsRangeDataGood())
 				{
-					setRate(lem->LR.GetAltitudeRate() * 1.82388664); //Generates seen rate signal from LM-3 \\FIXME: This is a hack, need to investigate why LM-3 generates this rate signal. LM-4 might need similar adjustment later
+					setRange(GetLRAltitude() * cos(Radians(15))); //Tapemeter slant range bias, multiplied by cos 15 deg
 				}
 				else
 				{
-					setRate(GetLRAltitudeRate());
+					setRange(0);
+				}
+				if (lem->LR.IsVelocityDataGood())
+				{
+					if ((lem->pMission->GetLMNumber()) == 3)
+					{
+						setRate(lem->LR.GetAltitudeRate() * 1.82388664); //Generates seen rate signal from LM-3 \\FIXME: This is a hack, need to investigate why LM-3 generates this rate signal. LM-4 might need similar adjustment later
+					}
+					else
+					{
+						setRate(GetLRAltitudeRate());
+					}
 				}
 			}
-		}
-		else if (*lem->Panel2RelayBox.Get9K34A()) //AGS
-		{
-			setRange(ags_alt);
-			setRate(ags_altrate);
-		}
-		else //PGNS
-		{
-			setRange(lgc_alt);
-			setRate(lgc_altrate);
+			else if (*lem->Panel2RelayBox.Get9K34A()) //AGS
+			{
+				setRange(ags_alt);
+				setRate(ags_altrate);
+			}
+			else //PGNS
+			{
+				setRange(lgc_alt);
+				setRate(lgc_altrate);
+			}
 		}
 	}
 
@@ -3145,6 +3278,7 @@ void LEM_RadarTape::Timestep(double simdt) {
 		dispRate = 5599.0;
 	}
 }
+// [/MP]
 
 void LEM_RadarTape::TapeDrive(double &Angle, double AngleCmd, double RateLimit, double simdt)
 {
@@ -3399,6 +3533,14 @@ bool CrossPointer::IsPowered()
 	return true;
 }
 
+// [MP]
+void CrossPointer::setVelocities(double vx, double vy)
+{
+	display_vel_x = vx;
+	display_vel_y = vy;
+}
+// [/MP]
+
 double CrossPointer::GetDimmableLightsLit()
 {
 	double lights_lit = 0.0;
@@ -3411,39 +3553,67 @@ double CrossPointer::GetDimmableLightsLit()
 	return lights_lit;
 }
 
-void CrossPointer::Timestep(double simdt)
+// [MP]
+void CrossPointer::Timestep(double simdt, bool multiplayer)
 {
-	if (!IsPowered())
+	if (!multiplayer)
 	{
-		vel_x = 0;
-		vel_y = 0;
-		UpdateDisplayValues(simdt);
-		return;
-	}
-
-	if (!(*RateErrorDispRelay)) //Rendezvous Radar
-	{
-		if (lem->RR.IsPowered())
-		{
-			vel_x = lem->RR.GetRadarShaftVel() * 1000.0;
-			vel_y = lem->RR.GetRadarTrunnionVel() * 1000.0;
-		}
-		else
+		if (!IsPowered())
 		{
 			vel_x = 0;
 			vel_y = 0;
+			UpdateDisplayValues(simdt);
+			return;
 		}
-	}
-	else //Landing Radar, Computer
-	{
-		double vx = 0, vy = 0;
 
-		if (*ModeSelLRDispRelay) //Landing Radar
+		if (!(*RateErrorDispRelay)) //Rendezvous Radar
 		{
-			if (lem->LR.IsVelocityDataGood())
+			if (lem->RR.IsPowered())
 			{
-				vx = lem->LR.rate[2] * 0.3048;
-				vy = lem->LR.rate[1] * 0.3048;
+				vel_x = lem->RR.GetRadarShaftVel() * 1000.0;
+				vel_y = lem->RR.GetRadarTrunnionVel() * 1000.0;
+			}
+			else
+			{
+				vel_x = 0;
+				vel_y = 0;
+			}
+		}
+		else //Landing Radar, Computer
+		{
+			double vx = 0, vy = 0;
+
+			if (*ModeSelLRDispRelay) //Landing Radar
+			{
+				if (lem->LR.IsVelocityDataGood())
+				{
+					vx = lem->LR.rate[2] * 0.3048;
+					vy = lem->LR.rate[1] * 0.3048;
+
+					//Apollo 15 and later had this inversed
+					if (lem->pMission->GetCrossPointerReversePolarity())
+					{
+						vy *= -1.0;
+					}
+				}
+				else
+				{
+					vx = 0;
+					vy = 0;
+				}
+			}
+			else if (*ModeSelAGSDispRelay) //AGS
+			{
+				vx = 0;
+				vy = lem->aea.GetLateralVelocity() * 0.3048;
+			}
+			else	//PGNS
+			{
+				lgc_forward = 0.5571 * (double)lem->scdu.GetAltOutput();
+				lgc_lateral = 0.5571 * (double)lem->tcdu.GetAltOutput();
+
+				vx = lgc_forward * 0.3048;
+				vy = lgc_lateral * 0.3048;
 
 				//Apollo 15 and later had this inversed
 				if (lem->pMission->GetCrossPointerReversePolarity())
@@ -3451,41 +3621,17 @@ void CrossPointer::Timestep(double simdt)
 					vy *= -1.0;
 				}
 			}
-			else
-			{
-				vx = 0;
-				vy = 0;
-			}
+
+			vel_x = callout_x = vx / 0.3048 * 20.0 / 200.0;
+			vel_y = callout_y = vy / 0.3048 * 20.0 / 200.0;
 		}
-		else if (*ModeSelAGSDispRelay) //AGS
+
+		//10 times finer scale
+		if (scaleSwitch->IsDown())
 		{
-			vx = 0;
-			vy = lem->aea.GetLateralVelocity() * 0.3048;
+			vel_x *= 10.0;
+			vel_y *= 10.0;
 		}
-		else	//PGNS
-		{
-			lgc_forward = 0.5571 * (double)lem->scdu.GetAltOutput();
-			lgc_lateral = 0.5571 * (double)lem->tcdu.GetAltOutput();
-
-			vx = lgc_forward * 0.3048;
-			vy = lgc_lateral * 0.3048;
-
-			//Apollo 15 and later had this inversed
-			if (lem->pMission->GetCrossPointerReversePolarity())
-			{
-				vy *= -1.0;
-			}
-		}
-
-		vel_x = callout_x = vx / 0.3048 * 20.0 / 200.0;
-		vel_y = callout_y = vy / 0.3048 * 20.0 / 200.0;
-	}
-
-	//10 times finer scale
-	if (scaleSwitch->IsDown())
-	{
-		vel_x *= 10.0;
-		vel_y *= 10.0;
 	}
 
 	//The output scaling is 20 for full deflection.
@@ -3537,6 +3683,7 @@ void CrossPointer::Timestep(double simdt)
 	}
 	//sprintf(oapiDebugString(), "9K32B/9K30B: %d 9K34A: %d 9K32A/9K30A: %d 9K29B %d 9K34B %d", *RateErrorLtRelay, *ModeSelAGSLtRelay, *RateErrorDispRelay, *ModeSelLRDispRelay, *ModeSelAGSDispRelay);
 }
+// [/MP]
 
 void CrossPointer::SystemTimestep(double simdt)
 {
@@ -3630,7 +3777,7 @@ void LEM::SyncFDAI(double simt, double simdt)
 			ConnectorMessage cm;
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Target;
+			cm.val1.iValue = (int)MP_PanelConnector::LEM_FDAI1_Target;
 			cm.val2.dValue = MPToPanelConnector.FDAI1.x;
 			cm.val3.dValue = MPToPanelConnector.FDAI1.y;
 			cm.val4.dValue = MPToPanelConnector.FDAI1.z;
@@ -3638,27 +3785,27 @@ void LEM::SyncFDAI(double simt, double simdt)
 			MPToPanelConnector.SendMessage(cm);
 
 			// Sync FDAI1 Rates
-			MPToPanelConnector.FDAI1_rates = fdaiLeft.GetRates();
+			MPToPanelConnector.FDAI1_Rates = fdaiLeft.GetRates();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Rates;
-			cm.val2.dValue = MPToPanelConnector.FDAI1_rates.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI1_rates.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI1_rates.z;
+			cm.val1.iValue = (int)MP_PanelConnector::LEM_FDAI1_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_Rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_Rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_Rates.z;
 
 			MPToPanelConnector.SendMessage(cm);
 
 
 			// Sync FDAI1 Errors
-			MPToPanelConnector.FDAI1_errors = fdaiLeft.GetErrors();
+			MPToPanelConnector.FDAI1_Errors = fdaiLeft.GetErrors();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Errors;
-			cm.val2.dValue = MPToPanelConnector.FDAI1_errors.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI1_errors.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI1_errors.z;
+			cm.val1.iValue = (int)MP_PanelConnector::LEM_FDAI1_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_Errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_Errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_Errors.z;
 
 			MPToPanelConnector.SendMessage(cm);
 
@@ -3667,7 +3814,7 @@ void LEM::SyncFDAI(double simt, double simdt)
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Target;
+			cm.val1.iValue = (int)MP_PanelConnector::LEM_FDAI2_Target;
 			cm.val2.dValue = MPToPanelConnector.FDAI2.x;
 			cm.val3.dValue = MPToPanelConnector.FDAI2.y;
 			cm.val4.dValue = MPToPanelConnector.FDAI2.z;
@@ -3677,26 +3824,26 @@ void LEM::SyncFDAI(double simt, double simdt)
 			MPToPanelConnector.lastFdaiSync = oapiGetSimTime();
 
 			// Sync FDAI2 Rates
-			MPToPanelConnector.FDAI2_rates = fdaiRight.GetRates();
+			MPToPanelConnector.FDAI2_Rates = fdaiRight.GetRates();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Rates;
-			cm.val2.dValue = MPToPanelConnector.FDAI2_rates.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI2_rates.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI2_rates.z;
+			cm.val1.iValue = (int)MP_PanelConnector::LEM_FDAI2_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_Rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_Rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_Rates.z;
 
 			MPToPanelConnector.SendMessage(cm);
 
 			// Sync FDAI2 Errors
-			MPToPanelConnector.FDAI2_errors = fdaiRight.GetErrors();
+			MPToPanelConnector.FDAI2_Errors = fdaiRight.GetErrors();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Errors;
-			cm.val2.dValue = MPToPanelConnector.FDAI2_errors.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI2_errors.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI2_errors.z;
+			cm.val1.iValue = (int)MP_PanelConnector::LEM_FDAI2_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_Errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_Errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_Errors.z;
 
 			MPToPanelConnector.SendMessage(cm);
 		}
@@ -3743,8 +3890,8 @@ void LEM::SyncFDAI(double simt, double simdt)
 			}
 		}
 
-		fdaiLeft.SetRates(MPToPanelConnector.FDAI1_rates_new);
-		fdaiLeft.SetErrors(MPToPanelConnector.FDAI1_errors_new);
+		fdaiLeft.SetRates(MPToPanelConnector.FDAI1_Rates_new);
+		fdaiLeft.SetErrors(MPToPanelConnector.FDAI1_Errors_new);
 
 		// RIGHT FDAI
 		if (MPToPanelConnector.Fdai2Simt1 > 0.0 && MPToPanelConnector.Fdai2Simt2 > 0.0)
@@ -3778,8 +3925,8 @@ void LEM::SyncFDAI(double simt, double simdt)
 			}
 		}
 
-		fdaiRight.SetRates(MPToPanelConnector.FDAI2_rates_new);
-		fdaiRight.SetErrors(MPToPanelConnector.FDAI2_errors_new);
+		fdaiRight.SetRates(MPToPanelConnector.FDAI2_Rates_new);
+		fdaiRight.SetErrors(MPToPanelConnector.FDAI2_Errors_new);
 	}
 
 	/*char bufx[16];

@@ -54,7 +54,6 @@
 //
 
 MPDskyConnector::MPDskyConnector()
-
 {
 	SetType(MP_DSKY_INTERFACE);
 	dskyChanges = std::vector<MPDskyChange>();
@@ -363,3 +362,4 @@ bool MPDskyConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
 
 	return false;
 }
+

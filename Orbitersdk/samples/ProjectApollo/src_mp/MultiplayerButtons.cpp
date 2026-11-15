@@ -1,3 +1,27 @@
+/***************************************************************************
+  This file is part of Project Apollo - NASSP
+  Copyright 2026
+
+  NASSP Multiplayer
+
+  Project Apollo is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  Project Apollo is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with Project Apollo; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+  See http://nassp.sourceforge.net/license/ for more details.
+
+  **************************************************************************/
+
 /*
 * Modifications and additions for NASSP Multiplayer (unofficial fork):
 * MULTIPLAYER MFD BUTTONS
@@ -54,7 +78,7 @@ MultiplayerMFDButtons::MultiplayerMFDButtons()
 		{ "Discnect", 0, 'D'},
 		{ "Set IP", 0, 'I' },
 		{ "Set Port", 0, 'P'},
-		{ 0, 0, 0 },
+		{ "LAN", 0, 'L'},
 		{ "Say", 0, 'C'},
 		{ "Sync Sim Time", 0, 'S'},
 		{ 0, 0, 0 },
@@ -72,6 +96,7 @@ MultiplayerMFDButtons::MultiplayerMFDButtons()
 	RegisterFunction("SYNC", OAPI_KEY_S, &MultiplayerMFD::menuSync);
 	RegisterFunction("IP", OAPI_KEY_I, &MultiplayerMFD::menuSetIP);
 	RegisterFunction("PORT", OAPI_KEY_P, &MultiplayerMFD::menuSetPort);
+	RegisterFunction("LAN", OAPI_KEY_L, &MultiplayerMFD::menuSetLAN);
 	RegisterFunction("BACK", OAPI_KEY_B, &MultiplayerMFD::menuSetMainPage);
 	
 	static const MFDBUTTONMENU mnuSettings[12] = {

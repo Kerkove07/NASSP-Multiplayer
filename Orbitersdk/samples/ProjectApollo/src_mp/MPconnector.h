@@ -129,6 +129,8 @@ public:
 
 	bool SendRhc(VECTOR3 rhc);
 	bool SendThc(VECTOR3 thc);
+	bool SendAca(VECTOR3 aca);
+	bool SendTtca(VECTOR3 ttca);
 	bool SendRCSSound(bool rcsSound, bool rcsSustainSound);
 
 	bool SendThruster(const char* name, int index, double value);

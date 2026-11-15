@@ -338,6 +338,11 @@ void MultiplayerMFD::menuSetPort()
 	oapiOpenInputBox("Port:", portInput, 0, 20, (void*)g_Multiplayer);
 }
 
+void MultiplayerMFD::menuSetLAN()
+{
+	g_Multiplayer->ToggleLAN();
+}
+
 void MultiplayerMFD::menuChat()
 {
 	bool sayInput(void* id, char* str, void* data);

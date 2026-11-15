@@ -4561,7 +4561,7 @@ void Saturn::SyncFDAI(double simt, double simdt)
 			ConnectorMessage cm;
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Target;
+			cm.val1.iValue = (int)MP_PanelConnector::CSM_FDAI1_Target;
 			cm.val2.dValue = MPToPanelConnector.FDAI1.x;
 			cm.val3.dValue = MPToPanelConnector.FDAI1.y;
 			cm.val4.dValue = MPToPanelConnector.FDAI1.z;
@@ -4569,27 +4569,27 @@ void Saturn::SyncFDAI(double simt, double simdt)
 			MPToPanelConnector.SendMessage(cm);
 
 			// Sync FDAI1 Rates
-			MPToPanelConnector.FDAI1_rates = eda.GetFDAI1AttitudeRate();
+			MPToPanelConnector.FDAI1_Rates = eda.GetFDAI1AttitudeRate();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Rates;
-			cm.val2.dValue = MPToPanelConnector.FDAI1_rates.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI1_rates.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI1_rates.z;
+			cm.val1.iValue = (int)MP_PanelConnector::CSM_FDAI1_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_Rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_Rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_Rates.z;
 
 			MPToPanelConnector.SendMessage(cm);
 
 
 			// Sync FDAI1 Errors
-			MPToPanelConnector.FDAI1_errors = eda.GetFDAI1AttitudeError();
+			MPToPanelConnector.FDAI1_Errors = eda.GetFDAI1AttitudeError();
 			
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI1_Errors;
-			cm.val2.dValue = MPToPanelConnector.FDAI1_errors.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI1_errors.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI1_errors.z;
+			cm.val1.iValue = (int)MP_PanelConnector::CSM_FDAI1_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI1_Errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI1_Errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI1_Errors.z;
 
 			MPToPanelConnector.SendMessage(cm);
 
@@ -4598,7 +4598,7 @@ void Saturn::SyncFDAI(double simt, double simdt)
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Target;
+			cm.val1.iValue = (int)MP_PanelConnector::CSM_FDAI2_Target;
 			cm.val2.dValue = MPToPanelConnector.FDAI2.x;
 			cm.val3.dValue = MPToPanelConnector.FDAI2.y;
 			cm.val4.dValue = MPToPanelConnector.FDAI2.z;
@@ -4608,26 +4608,26 @@ void Saturn::SyncFDAI(double simt, double simdt)
 			MPToPanelConnector.lastFdaiSync = oapiGetSimTime();
 			
 			// Sync FDAI2 Rates
-			MPToPanelConnector.FDAI2_rates = eda.GetFDAI2AttitudeRate();
+			MPToPanelConnector.FDAI2_Rates = eda.GetFDAI2AttitudeRate();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Rates;
-			cm.val2.dValue = MPToPanelConnector.FDAI2_rates.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI2_rates.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI2_rates.z;
+			cm.val1.iValue = (int)MP_PanelConnector::CSM_FDAI2_Rates;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_Rates.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_Rates.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_Rates.z;
 
 			MPToPanelConnector.SendMessage(cm);
 
 			// Sync FDAI2 Errors
-			MPToPanelConnector.FDAI2_errors = eda.GetFDAI2AttitudeError();
+			MPToPanelConnector.FDAI2_Errors = eda.GetFDAI2AttitudeError();
 
 			cm.destination = MP_PANEL_INTERFACE;
 			cm.messageType = MP_PanelConnector::MP_PANEL_FDAI_CHANGED;
-			cm.val1.iValue = (int)MP_PanelConnector::FDAI2_Errors;
-			cm.val2.dValue = MPToPanelConnector.FDAI2_errors.x;
-			cm.val3.dValue = MPToPanelConnector.FDAI2_errors.y;
-			cm.val4.dValue = MPToPanelConnector.FDAI2_errors.z;
+			cm.val1.iValue = (int)MP_PanelConnector::CSM_FDAI2_Errors;
+			cm.val2.dValue = MPToPanelConnector.FDAI2_Errors.x;
+			cm.val3.dValue = MPToPanelConnector.FDAI2_Errors.y;
+			cm.val4.dValue = MPToPanelConnector.FDAI2_Errors.z;
 
 			MPToPanelConnector.SendMessage(cm);
 		}
@@ -4674,8 +4674,8 @@ void Saturn::SyncFDAI(double simt, double simdt)
 			}
 		}
 
-		fdaiLeft.SetRates(MPToPanelConnector.FDAI1_rates_new);
-		fdaiLeft.SetErrors(MPToPanelConnector.FDAI1_errors_new);
+		fdaiLeft.SetRates(MPToPanelConnector.FDAI1_Rates_new);
+		fdaiLeft.SetErrors(MPToPanelConnector.FDAI1_Errors_new);
 
 		// RIGHT FDAI
 		if (MPToPanelConnector.Fdai2Simt1 > 0.0 && MPToPanelConnector.Fdai2Simt2 > 0.0)
@@ -4709,8 +4709,8 @@ void Saturn::SyncFDAI(double simt, double simdt)
 			}
 		}
 
-		fdaiRight.SetRates(MPToPanelConnector.FDAI2_rates_new);
-		fdaiRight.SetErrors(MPToPanelConnector.FDAI2_errors_new);
+		fdaiRight.SetRates(MPToPanelConnector.FDAI2_Rates_new);
+		fdaiRight.SetErrors(MPToPanelConnector.FDAI2_Errors_new);
 	}
 
 	/*char bufx[16];

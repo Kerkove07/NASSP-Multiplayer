@@ -1,3 +1,27 @@
+/***************************************************************************
+  This file is part of Project Apollo - NASSP
+  Copyright 2026
+
+  NASSP Multiplayer
+
+  Project Apollo is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  Project Apollo is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with Project Apollo; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+  See http://nassp.sourceforge.net/license/ for more details.
+
+  **************************************************************************/
+
 /*
 * Modifications and additions for NASSP Multiplayer (unofficial fork):
 * MULTIPLAYER DSKY CONNECTOR
@@ -103,7 +127,6 @@ void Multiplayer::SyncStateVector(const Multiplayer::StateVector& sv)
 
 	if (match == -1)
 	{
-		lastStateVectors.push_back(sv);
 		return;
 	}
 
@@ -121,15 +144,22 @@ void Multiplayer::SyncStateVector(const Multiplayer::StateVector& sv)
 	}
 
 	if (dt > 0.0 && ves)
-	{
+	{		
 		// Predict where the remote vessel should be now.
 		double targetDt = oapiGetSimTime() - sv.mjd;
 
-		VECTOR3 targetPos = sv.pos + sv.vel * targetDt;
-		VECTOR3 targetVel = sv.vel;
+		VECTOR3 hostAccel = (sv.vel - old.vel) / dt;
 
-		std::string logstr = "Target (" + sv.name + "," + sv.rbody + ") = " + to_string(targetPos.x) + ":" + to_string(targetPos.y) + " : " + to_string(targetPos.z) + to_string(sv.vel.x) + " : " + to_string(sv.vel.y) + " : " + to_string(sv.vel.z);
-		LogClient(logstr.c_str());
+		VECTOR3 targetPos =
+			sv.pos +
+			sv.vel * targetDt +
+			hostAccel * (0.5 * targetDt * targetDt);
+
+		VECTOR3 targetVel =
+			sv.vel + hostAccel * targetDt;
+
+		//std::string logstr = "Target (" + sv.name + "," + sv.rbody + ") = " + to_string(targetPos.x) + ":" + to_string(targetPos.y) + " : " + to_string(targetPos.z) + to_string(sv.vel.x) + " : " + to_string(sv.vel.y) + " : " + to_string(sv.vel.z);
+		//LogClient(logstr.c_str());
 
 		VESSELSTATUS vs;
 		ves->GetStatus(vs);
@@ -145,22 +175,31 @@ void Multiplayer::SyncStateVector(const Multiplayer::StateVector& sv)
 
 		std::string namestr = ves->GetName();
 
-		logstr = "Current (" + namestr + "," + buf + ") = " + to_string(currentPos.x) + ":" + to_string(currentPos.y) + " : " + to_string(currentPos.z) + ":" + to_string(currentVel.x) + " : " + to_string(currentVel.y) + " : " + to_string(currentVel.z);
-		LogClient(logstr.c_str());
+		//logstr = "Current (" + namestr + "," + buf + ") = " + to_string(currentPos.x) + ":" + to_string(currentPos.y) + " : " + to_string(currentPos.z) + ":" + to_string(currentVel.x) + " : " + to_string(currentVel.y) + " : " + to_string(currentVel.z);
+		//LogClient(logstr.c_str());
 
 		// Position error.
 		VECTOR3 posError = targetPos - currentPos;
 		VECTOR3 velError = targetVel - currentVel;
 
-		// Critically damped spring: accel = w^2 * posErr + 2w * velErr
-		const double w = 10.0;                 // rad/s, higher = stiffer
-		VECTOR3 accel = posError * (w * w) + velError * (2.0 * w);
+		// Host acceleration feed-forward + PD correction
+		const double positionGain = 2.0;
+		const double velocityGain = 3.0;
 
-		/*// TODO: Clamp acceleration so a bad packet can't blow things up
-		const double maxAccel = 5.0;          // m/s^2, tune
-		double a = length(accel);
-		if (a > maxAccel)
-			accel = accel * (maxAccel / a);*/
+		// Calc acceleration
+		VECTOR3 accel =
+			hostAccel +
+			posError * positionGain +
+			velError * velocityGain;
+
+
+		/* Clamp acceleration so a bad packet can't blow things up
+		const double maxAccel = 10.0;
+		double accelMagnitude = length(accel);
+		if (accelMagnitude > maxAccel)
+		{
+			accel *= maxAccel / accelMagnitude;
+		}*/
 
 		// AddForce takes LOCAL vessel coordinates, so rotate global -> local
 		VECTOR3 force = accel * ves->GetMass();
@@ -170,12 +209,31 @@ void Multiplayer::SyncStateVector(const Multiplayer::StateVector& sv)
 
 		ves->AddForce(localForce, _V(0, 0, 0));
 	}
-
-	ves->SetGlobalOrientation(sv.apos);
-	ves->SetAngularVel(sv.avel);
-
-	lastStateVectors[match] = sv;
 }
+
+/*
+void Multiplayer::ApplyThrustVectors()
+{
+	for (size_t i = 0; i < thrustVectors.size(); i++)
+	{
+		const ThrustVector& tv = thrustVectors[i];
+		OBJHANDLE hVes = oapiGetVesselByName(const_cast<char*>(tv.name.c_str()));
+		if (!hVes)
+		{
+			LogClient("Invalid Vessel Handle on ApplyThrustVector");
+			return;
+		}
+		VESSEL* ves = oapiGetVesselInterface(hVes);
+		if (!ves)
+		{
+			LogClient("Invalid Vessel Interface on ApplyThrustVector");
+			return;
+		}
+
+		ves->AddForce(tv.tvec, _V(0, 0, 0));
+	}
+}
+*/
 
 Multiplayer::Multiplayer()
 {	
@@ -183,6 +241,7 @@ Multiplayer::Multiplayer()
 	ZMQData.socket_implicit = nullptr;
 	ZMQData.socket_explicit = nullptr;
 	ZMQData.status = ZeroMQStatus::DISCONNECTED;
+	ZMQData.useLAN = true;
 	recvBuffer[0] = '\0';
 
 	saturn = NULL;
@@ -207,6 +266,11 @@ Multiplayer& Multiplayer::GetInstance()
 
 const char* Multiplayer::Host()
 {
+	if (ZMQData.status == ZeroMQStatus::HOST)
+	{
+		return "Already Hosting";
+	}
+
 	// Build the address string
 	char iAddr[128];
 	sprintf(iAddr, "tcp://%s:%d", "0.0.0.0", port);
@@ -223,9 +287,21 @@ const char* Multiplayer::Host()
 	// Init Explicit socket (Client Req/Rep)
 	ZMQData.socket_explicit = new zmq::socket_t(*ZMQData.context, zmq::socket_type::rep);
 
-	// Bind sockets
-	ZMQData.socket_implicit->bind(iAddr);
-	ZMQData.socket_explicit->bind(eAddr);
+	// Bind sockets (LAN Only)
+	if (ZMQData.useLAN)
+	{
+		ZMQData.socket_implicit->bind(iAddr);
+		ZMQData.socket_explicit->bind(eAddr);
+	}
+
+	else
+	{
+		sprintf(iAddr, "tcp://%s:%d", address.c_str(), port);
+		sprintf(eAddr, "tcp://%s:%d", address.c_str(), port + 2);
+
+		ZMQData.socket_implicit->connect(iAddr);
+		ZMQData.socket_explicit->connect(eAddr);
+	}
 	
 	oapiDebugString("Listening for connections...");
 	
@@ -243,12 +319,23 @@ const char* Multiplayer::Host()
 
 const char* Multiplayer::Join()
 {
+	if (ZMQData.status == ZeroMQStatus::CLIENT)
+	{
+		return "Already Joined";
+	}
+
 	// Build the address string
 	char iAddr[128];
 	sprintf(iAddr, "tcp://%s:%d", address.c_str(), port);
 
 	char eAddr[128];
 	sprintf(eAddr, "tcp://%s:%d", address.c_str(), port + 1);
+
+	if (!ZMQData.useLAN)
+	{
+		sprintf(iAddr, "tcp://%s:%d", address.c_str(), port + 1);
+		sprintf(eAddr, "tcp://%s:%d", address.c_str(), port + 3);
+	}
 
 	// Init Context
 	ZMQData.context = new zmq::context_t(1);
@@ -277,6 +364,18 @@ const char* Multiplayer::Join()
 	mpLogFileClient = oapiOpenFile("MultiplayerClient.log", FILE_OUT);
 
 	return "Joined Session";
+}
+
+void Multiplayer::ToggleLAN()
+{
+	if (!ZMQData.useLAN)
+	{
+		ZMQData.useLAN = true;
+	}
+	else
+	{
+		ZMQData.useLAN = false;
+	}
 }
 
 void Multiplayer::Update(double simt, double simdt, double mjd)
@@ -313,7 +412,7 @@ void Multiplayer::Update(double simt, double simdt, double mjd)
 
 		
 		// SYNC STATE VECTORS
-		if (simt - lastSendSVSimt >= sendSVInterval && oapiGetTimeAcceleration() <= 1.0)
+		if (simt - lastSendSVSimt >= sendSVInterval * oapiGetTimeAcceleration())
 		{
 			// Send State Vector for all vessels)
 			for (DWORD i = 0; i < oapiGetVesselCount(); i++)
@@ -334,14 +433,43 @@ void Multiplayer::Update(double simt, double simdt, double mjd)
 		{
 			SendTimeAccel(TimeAccel);
 			lastTimeAccel = TimeAccel;
+			SendMJD();
+		}
+		
+		// SYNC EMS DV DISPLAY
+		if (oapiGetSimTime() >= lastSendEMSSimt + 0.2)
+		{
+			if (emsDvs.size())
+			{
+				SendSwitch("SATURN", "EMSDvDisplay", emsDvs.front(), 0, 0);
+				sendEMS = true;
+				lastSendEMSSimt = oapiGetSimTime();
+				emsDvs.clear();
+			}
 		}
 
-		// SYNC EMS DV DISPLAY
-		if (sendEMS && oapiGetSimTime() >= lastSendEMSSimt + 0.2)
+		// SYNC LEM RADAR DISPLAY
+		if (oapiGetSimTime() >= lastSendRadarSimt + 0.2)
 		{
-			SendSwitch("SATURN", "EMSDvDisplay", lastEMSDv, 0, 0);
-			sendEMS = false;
-			lastSendEMSSimt = simt;
+			if (radars.size())
+			{
+				SendRadar(radars.front().x, radars.front().y, radars.front().z);
+				sendRadar = true;
+				lastSendRadarSimt = oapiGetSimTime();
+				radars.clear();
+			}
+		}
+
+		// SYNC LEM CROSSPOINTER DISPLAY
+		if (oapiGetSimTime() >= lastSendCrossPointerSimt + 0.2)
+		{
+			if (crossPointers.size())
+			{
+				SendCrossPointer(crossPointers.front().left, crossPointers.front().right);
+				sendCrossPointer = true;
+				lastSendCrossPointerSimt = oapiGetSimTime();
+				crossPointers.clear();
+			}
 		}
 	}
 
@@ -375,6 +503,12 @@ void Multiplayer::Update(double simt, double simdt, double mjd)
 		{
 			SendTimeSyncReq();
 			TimeOfSyncRequest = 1e100;
+		}
+
+		// APPLY STATE VECTORS
+		for (size_t i = 0; i < stateVectors.size(); i++)
+		{
+			SyncStateVector(stateVectors.at(i));
 		}
 	}
 	
@@ -423,16 +557,30 @@ void Multiplayer::Update(double simt, double simdt, double mjd)
 	// Check for DSKY state changes
 	if (csmDskyConn.dskyChanges.size() > 0)
 	{
-		MPDskyConnector::MPDskyChange change = csmDskyConn.dskyChanges.at(0);
+		MPDskyConnector::MPDskyChange csmChange = csmDskyConn.dskyChanges.at(0);
 		
 		if (oapiGetTimeAcceleration() <= 1.0)
 		{
-			if (!strcmp(change.cState, ""))
-				SendDskyLight(change.name, change.state);
+			if (!strcmp(csmChange.cState, ""))
+				SendDskyLight("CSM", csmChange.name, csmChange.state);
 			else
-				SendDskyReg(change.name, change.cState);
+				SendDskyReg("CSM", csmChange.name, csmChange.cState);
 		}
 		csmDskyConn.dskyChanges.erase(csmDskyConn.dskyChanges.begin());
+	}
+
+	if (lemDskyConn.dskyChanges.size() > 0)
+	{
+		MPDskyConnector::MPDskyChange lemChange = lemDskyConn.dskyChanges.at(0);
+
+		if (oapiGetTimeAcceleration() <= 1.0)
+		{
+			if (!strcmp(lemChange.cState, ""))
+				SendDskyLight("LEM", lemChange.name, lemChange.state);
+			else
+				SendDskyReg("LEM", lemChange.name, lemChange.cState);
+		}
+		lemDskyConn.dskyChanges.erase(lemDskyConn.dskyChanges.begin());
 	}
 
 
@@ -682,9 +830,12 @@ void Multiplayer::HandleASCIIMessage()
 
 	else if (command == "RHC")
 		HandleRhcMessage(tokens.at(1).c_str());
-
 	else if (command == "THC")
 		HandleThcMessage(tokens.at(1).c_str());
+	else if (command == "ACA")
+		HandleAcaMessage(tokens.at(1).c_str());
+	else if (command == "TTCA")
+		HandleTtcaMessage(tokens.at(1).c_str());
 	else if (command == "RCS")
 		HandleRCSSoundMessage(tokens.at(1).c_str());
 	else if (command == "TH")
@@ -704,6 +855,20 @@ void Multiplayer::HandleASCIIMessage()
 		if (isClient())
 			LogClient(logMessage.c_str());
 		//HandleLandedMessage(tokens.at(1).c_str());
+	}
+	else if (command == "RAD")
+	{
+		std::string logMessage = "<Recv>: " + input;
+		if (isClient())
+			LogClient(logMessage.c_str());
+		HandleRadarMessage(tokens.at(1).c_str());
+	}
+	else if (command == "XP")
+	{
+		std::string logMessage = "<Recv>: " + input;
+		if (isClient())
+			LogClient(logMessage.c_str());
+		HandleCrossPointerMessage(tokens.at(1).c_str());
 	}
 		
 	else
@@ -806,15 +971,23 @@ void Multiplayer::HandleDskyLightMessage(const char* message)
 		tokens.push_back(input.substr(start));
 	}
 
-	if (tokens.size() < 2) {
+	if (tokens.size() < 3) {
 		oapiDebugString("Invalid switch message format");
 		return;
 	}
 
-	const std::string& name = tokens.at(0);
-	const std::string& state = tokens.at(1);
+	const std::string& dsky = tokens.at(0);
+	const std::string& name = tokens.at(1);
+	const std::string& state = tokens.at(2);
 
-	csmDskyConn.SetState((char*)name.c_str(), std::stoi(state));
+	if (dsky == "CSM")
+	{
+		csmDskyConn.SetState((char*)name.c_str(), std::stoi(state));
+	}
+	else if (dsky == "LEM")
+	{
+		lemDskyConn.SetState((char*)name.c_str(), std::stoi(state));
+	}
 }
 
 void Multiplayer::HandleDskyRegMessage(const char* message)
@@ -840,15 +1013,23 @@ void Multiplayer::HandleDskyRegMessage(const char* message)
 		tokens.push_back(input.substr(start));
 	}
 
-	if (tokens.size() < 2) {
+	if (tokens.size() < 3) {
 		oapiDebugString("Invalid switch message format");
 		return;
 	}
 
-	const std::string& name = tokens.at(0);
-	const std::string& state = tokens.at(1);
+	const std::string& dsky = tokens.at(0);
+	const std::string& name = tokens.at(1);
+	const std::string& state = tokens.at(2);
 
-	csmDskyConn.SetState((char*)name.c_str(), (char*)state.c_str());
+	if (dsky == "CSM")
+	{
+		csmDskyConn.SetState((char*)name.c_str(), (char*)state.c_str());
+	}
+	else if (dsky == "LEM")
+	{
+		lemDskyConn.SetState((char*)name.c_str(), (char*)state.c_str());
+	}
 }
 
 void Multiplayer::HandleMJDMessage(const char* message)
@@ -856,6 +1037,7 @@ void Multiplayer::HandleMJDMessage(const char* message)
 	double mjdNew = stod(message);
 	oapiSetSimMJD(mjdNew);
 	conn.SyncMissionTime();
+	lemConn.SyncMissionTime();
 }
 
 void Multiplayer::HandleSeatMessage(const char* message)
@@ -891,11 +1073,16 @@ void Multiplayer::HandleFdaiMessage(const char* message)
 		oapiDebugString("Invalid FDAI message format");
 		return;
 	}
-
+	 
 	int type = stoi(tokens.at(0));
 	VECTOR3 fdai = { stod(tokens.at(1)), stod(tokens.at(2)), stod(tokens.at(3)) };
 
-	conn.SyncFDAI(type, fdai);
+	// CSM FDAI
+	if (type < 6)
+		conn.SyncFDAI(type, fdai);
+	// LEM FDAI
+	else
+		lemConn.SyncFDAI(type, fdai);
 }
 
 void Multiplayer::HandleStateVectorMessage(const char* message)
@@ -921,7 +1108,7 @@ void Multiplayer::HandleStateVectorMessage(const char* message)
 		tokens.push_back(input.substr(start));
 	}
 
-	if (tokens.size() < 15) {
+	if (tokens.size() < 18) {
 		oapiDebugString("Invalid SV message format");
 		return;
 	}
@@ -934,14 +1121,41 @@ void Multiplayer::HandleStateVectorMessage(const char* message)
 	sv.vel = { stod(tokens.at(5)), stod(tokens.at(6)), stod(tokens.at(7)) };
 	sv.apos = { stod(tokens.at(8)), stod(tokens.at(9)), stod(tokens.at(10)) };
 	sv.avel = { stod(tokens.at(11)), stod(tokens.at(12)), stod(tokens.at(13)) };
-	sv.mjd = stod(tokens.at(14));
+	sv.tvec = { stod(tokens.at(14)), stod(tokens.at(15)), stod(tokens.at(16)) };
+	sv.mjd = stod(tokens.at(17));
 
 	// Remove whitespace from rbody
 	if (!sv.rbody.empty() && sv.rbody.front() == ' ')
 		sv.rbody.erase(0, 1);
 
-	SyncStateVector(sv);
-	//stateVectors.push_back(sv);
+	// Apply orientation and angular veocity
+	OBJHANDLE hVes = oapiGetVesselByName(const_cast<char*>(sv.name.c_str()));
+	VESSEL* ves = oapiGetVesselInterface(hVes);
+
+	ves->SetGlobalOrientation(sv.apos);
+	ves->SetAngularVel(sv.avel);
+
+	// Erase the last state vector from the list
+	for (size_t i = 0; i < lastStateVectors.size(); i++)
+	{
+		StateVector& lsv = lastStateVectors.at(i);
+		if (lsv.name == sv.name)
+		{
+			lastStateVectors.erase(lastStateVectors.begin() + i);
+		}
+	}
+
+	// Add state vector to the list
+	for (size_t i = 0; i < stateVectors.size(); i++)
+	{
+		if (stateVectors[i].name == sv.name)
+		{
+			lastStateVectors.push_back(stateVectors.at(i));
+			stateVectors.erase(stateVectors.begin() + i);
+		}
+	}
+
+	stateVectors.push_back(sv);
 }
 
 void Multiplayer::HandleTimeAccelMessage(const char* message)
@@ -984,7 +1198,7 @@ void Multiplayer::HandleRhcMessage(const char* message)
 	conn.SendRhc(rhc);
 }
 
-void Multiplayer::HandleThcMessage(const char* message)
+void Multiplayer::HandleThcMessage(const char* message)   
 {
 	std::string input = message;
 
@@ -1015,6 +1229,72 @@ void Multiplayer::HandleThcMessage(const char* message)
 	VECTOR3 thc = { stod(tokens.at(0)), stod(tokens.at(1)), stod(tokens.at(2)) };
 
 	conn.SendThc(thc);
+}
+
+void Multiplayer::HandleAcaMessage(const char* message)
+{
+	std::string input = message;
+
+	// Tokenize the switch command
+	std::vector<std::string> tokens;
+	size_t start = 0;
+	size_t end = input.find_first_of(",");
+
+	while (end != std::string::npos) {
+		if (end > start)
+		{
+			tokens.push_back(input.substr(start, end - start));
+		}
+
+		start = end + 1;
+		end = input.find_first_of(",", start);
+	}
+
+	if (start < input.length()) {
+		tokens.push_back(input.substr(start));
+	}
+
+	if (tokens.size() < 3) {
+		oapiDebugString("Invalid ACA message format");
+		return;
+	}
+
+	VECTOR3 aca = { stod(tokens.at(0)), stod(tokens.at(1)), stod(tokens.at(2)) };
+
+	lemConn.SendAca(aca);
+}
+
+void Multiplayer::HandleTtcaMessage(const char* message)
+{
+	std::string input = message;
+
+	// Tokenize the switch command
+	std::vector<std::string> tokens;
+	size_t start = 0;
+	size_t end = input.find_first_of(",");
+
+	while (end != std::string::npos) {
+		if (end > start)
+		{
+			tokens.push_back(input.substr(start, end - start));
+		}
+
+		start = end + 1;
+		end = input.find_first_of(",", start);
+	}
+
+	if (start < input.length()) {
+		tokens.push_back(input.substr(start));
+	}
+
+	if (tokens.size() < 3) {
+		oapiDebugString("Invalid TTCA message format");
+		return;
+	}
+
+	VECTOR3 ttca = { stod(tokens.at(0)), stod(tokens.at(1)), stod(tokens.at(2)) };
+
+	lemConn.SendTtca(ttca);
 }
 
 void Multiplayer::HandleRCSSoundMessage(const char* message)
@@ -1122,6 +1402,82 @@ void Multiplayer::HandleLandedMessage(const char* message)
 	lemConn.SendLanded(state);
 }
 
+void Multiplayer::HandleRadarMessage(const char* message)
+{
+	std::string input = message;
+
+	// Tokenize the switch command
+	std::vector<std::string> tokens;
+	size_t start = 0;
+	size_t end = input.find_first_of(",");
+
+	while (end != std::string::npos) {
+		if (end > start)
+		{
+			tokens.push_back(input.substr(start, end - start));
+		}
+
+		start = end + 1;
+		end = input.find_first_of(",", start);
+	}
+
+	if (start < input.length()) {
+		tokens.push_back(input.substr(start));
+	}
+
+	if (tokens.size() < 3) {
+		oapiDebugString("Invalid LEM radar message format");
+		return;
+	}
+
+	ConnectorMessage cm;
+	cm.destination = MP_PANEL_INTERFACE;
+	cm.messageType = MP_PanelConnector::MP_PANEL_SET_RADAR;
+	cm.val1.dValue = stod(tokens.at(0));
+	cm.val2.dValue = stod(tokens.at(1));
+	cm.val3.dValue = stod(tokens.at(2));
+	lemConn.SendMessage(cm);
+}
+
+void Multiplayer::HandleCrossPointerMessage(const char* message)
+{
+	std::string input = message;
+
+	// Tokenize the switch command
+	std::vector<std::string> tokens;
+	size_t start = 0;
+	size_t end = input.find_first_of(",");
+
+	while (end != std::string::npos) {
+		if (end > start)
+		{
+			tokens.push_back(input.substr(start, end - start));
+		}
+
+		start = end + 1;
+		end = input.find_first_of(",", start);
+	}
+
+	if (start < input.length()) {
+		tokens.push_back(input.substr(start));
+	}
+
+	if (tokens.size() < 6) {
+		oapiDebugString("Invalid LEM cross pointer message format");
+		return;
+	}
+
+	VECTOR3 left = { stod(tokens.at(0)), stod(tokens.at(1)), stod(tokens.at(2)) };
+	VECTOR3 right = { stod(tokens.at(3)), stod(tokens.at(4)), stod(tokens.at(5)) };
+
+	ConnectorMessage cm;
+	cm.destination = MP_PANEL_INTERFACE;
+	cm.messageType = MP_PanelConnector::MP_PANEL_SET_CROSSPOINTER;
+	cm.val1.vValue = left;
+	cm.val2.vValue = right;
+	lemConn.SendMessage(cm);
+}
+
 void Multiplayer::Disconnect()
 {
 	conn.SetIsClient(false);
@@ -1196,17 +1552,28 @@ bool Multiplayer::isClient()
 
 char* Multiplayer::getStatusString()
 {
+	std::string statusStr;
+	
 	if (ZMQData.status == ZeroMQStatus::HOST) {
-		return "Hosting";
+		statusStr = "Hosting";
 	}
 	else if (ZMQData.status == ZeroMQStatus::CLIENT) {
-		return "Client";
+		statusStr = "Client";
 	}
 	else if (ZMQData.status == ZeroMQStatus::DISCONNECTED) {
-		return "Disconnected";
+		statusStr = "Disconnected";
+	}
+	else
+		statusStr = "Idle";
+
+	if (ZMQData.useLAN) {
+		statusStr += " (LAN)";
+	}
+	else {
+		statusStr += " (WAN)";
 	}
 
-	return "Idle";
+	return const_cast<char*>(statusStr.c_str());
 }
 
 bool Multiplayer::SetIP(const char* cIP)
@@ -1264,8 +1631,14 @@ bool Multiplayer::SendSwitch(const char* vessel, const char* name, int state, bo
 	// Control the sending of EMSDvDisplay messages to avoid flooding the network with too many messages
 	if (!strcmp(name, "EMSDvDisplay"))
 	{
-		sendEMS = true;
-		lastEMSDv = state;
+		if (!sendEMS)
+		{
+			emsDvs.push_back(state);
+			return true;
+		}
+
+		else
+			sendEMS = false;
 	}
 
 	// hold off on sending any state vectors for a few seconds to allow the SIVB to separate and stabilize
@@ -1304,14 +1677,14 @@ bool Multiplayer::SendSwitch(const char* vessel, const char* name, int state, bo
 	return false;
 }
 
-bool Multiplayer::SendDskyLight(const char* name, bool state)
+bool Multiplayer::SendDskyLight(const char* dsky, const char* name, bool state)
 {
 	if ((SIVBSepTriggerrd && oapiGetSimTime() < SIVBSepTime + SIVBSepDuration)) return false;
 
 	if (ZMQData.status == ZeroMQStatus::HOST)
 	{
 		char buf[512];
-		sprintf(buf, "[DL]%s,%d", name, state);
+		sprintf(buf, "[DL]%s,%s,%d", dsky, name, state);
 		Broadcast(buf);
 		sentBytes += strlen(buf);
 		std::string logMsg = "<SEND>: " + std::string(buf);
@@ -1322,14 +1695,14 @@ bool Multiplayer::SendDskyLight(const char* name, bool state)
 	return false;
 }
 
-bool Multiplayer::SendDskyReg(const char* name, const char* state)
+bool Multiplayer::SendDskyReg(const char* dsky,const char* name, const char* state)
 {
 	if ((SIVBSepTriggerrd && oapiGetSimTime() < SIVBSepTime + SIVBSepDuration)) return false;
 
 	if (ZMQData.status == ZeroMQStatus::HOST)
 	{
 		char buf[512];
-		sprintf(buf, "[DR]%s,%s", name, state);
+		sprintf(buf, "[DR]%s,%s,%s", dsky, name, state);
 		Broadcast(buf);
 		sentBytes += strlen(buf);
 		std::string logMsg = "<SEND>: " + std::string(buf);
@@ -1435,9 +1808,10 @@ bool Multiplayer::SendStateVector(const char* craft)
 	oapiGetRelativeVel(ves->GetHandle(), vs.rbody, &sv.vel);
 	ves->GetGlobalOrientation(sv.apos);
 	ves->GetAngularVel(sv.avel);
+	ves->GetThrustVector(sv.tvec);
 	sv.mjd = oapiGetSimTime();
 
-	sprintf(buf, "[SV]%s, %s, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f", sv.name.c_str(), sv.rbody.c_str(), sv.pos.x, sv.pos.y, sv.pos.z, sv.vel.x, sv.vel.y, sv.vel.z, sv.apos.x, sv.apos.y, sv.apos.z, sv.avel.x, sv.avel.y, sv.avel.z, sv.mjd);
+	sprintf(buf, "[SV]%s, %s, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f", sv.name.c_str(), sv.rbody.c_str(), sv.pos.x, sv.pos.y, sv.pos.z, sv.vel.x, sv.vel.y, sv.vel.z, sv.apos.x, sv.apos.y, sv.apos.z, sv.avel.x, sv.avel.y, sv.avel.z, sv.tvec.x, sv.tvec.y, sv.tvec.z, sv.mjd);
 	Broadcast(buf);
 	sentBytes += strlen(buf);
 	std::string logMsg = "<SEND>: " + std::string(buf);
@@ -1492,6 +1866,36 @@ bool Multiplayer::SendThc(VECTOR3 thc)
 	return false;
 }
 
+bool Multiplayer::SendAca(VECTOR3 aca)
+{
+	char buf[512];
+	if (ZMQData.status == ZeroMQStatus::CLIENT)
+	{
+		sprintf(buf, "[ACA]%f,%f,%f", aca.x, aca.y, aca.z);
+		SendExplicit(buf);
+		sentBytes += strlen(buf);
+		std::string logMsg = "<SEND>: " + std::string(buf);
+		LogClient(logMsg.c_str());
+		return true;
+	}
+	return false;
+}
+
+bool Multiplayer::SendTtca(VECTOR3 ttca)
+{
+	char buf[512];
+	if (ZMQData.status == ZeroMQStatus::CLIENT)
+	{
+		sprintf(buf, "[TTCA]%f,%f,%f", ttca.x, ttca.y, ttca.z);
+		SendExplicit(buf);
+		sentBytes += strlen(buf);
+		std::string logMsg = "<SEND>: " + std::string(buf);
+		LogClient(logMsg.c_str());
+		return true;
+	}
+	return false;
+}
+
 bool Multiplayer::SendRCSSound(bool sound, bool sustain)
 {
 	char buf[512];
@@ -1528,6 +1932,52 @@ bool Multiplayer::SendLanded(bool state)
 	if (ZMQData.status == ZeroMQStatus::HOST)
 	{
 		sprintf(buf, "[LAND]%b", state);
+		Broadcast(buf);
+		sentBytes += strlen(buf);
+		std::string logMsg = "<SEND>: " + std::string(buf);
+		LogHost(logMsg.c_str());
+		return true;
+	}
+	return false;
+}
+
+bool Multiplayer::SendRadar(double range, double rate, double light)
+{
+	if (!sendRadar)
+	{
+		radars.push_back({range, rate, light});
+		return true;
+	}
+	
+	sendRadar = false;
+
+	char buf[512];
+	if (ZMQData.status == ZeroMQStatus::HOST)
+	{
+		sprintf(buf, "[RAD]%f,%f,%f", range, rate, light);
+		Broadcast(buf);
+		sentBytes += strlen(buf);
+		std::string logMsg = "<SEND>: " + std::string(buf);
+		LogHost(logMsg.c_str());
+		return true;
+	}
+	return false;
+}
+
+bool Multiplayer::SendCrossPointer(VECTOR3 left, VECTOR3 right)
+{
+	if (!sendCrossPointer)
+	{
+		crossPointers.push_back({ left, right });
+		return true;
+	}
+
+	sendRadar = false;
+
+	char buf[512];
+	if (ZMQData.status == ZeroMQStatus::HOST)
+	{
+		sprintf(buf, "[XP]%f,%f,%f,%f,%f,%f", left.x, left.y, left.z, right.x, right.y, right.z);
 		Broadcast(buf);
 		sentBytes += strlen(buf);
 		std::string logMsg = "<SEND>: " + std::string(buf);

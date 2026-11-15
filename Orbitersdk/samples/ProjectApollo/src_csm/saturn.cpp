@@ -627,8 +627,10 @@ Saturn::Saturn(OBJHANDLE hObj, int fmodel) : ProjectApolloConnectorVessel (hObj,
 	// Register visible connectors.
 	//
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &MFDToPanelConnector);
+	// [MP]
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &MPToPanelConnector);
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, MPToDskyConnector);
+	// [MP]
 	RegisterConnector(VIRTUAL_CONNECTOR_PORT, &cdi);
 	RegisterConnector(0, &CSMToLEMConnector);
 	RegisterConnector(0, &lemECSConnector);

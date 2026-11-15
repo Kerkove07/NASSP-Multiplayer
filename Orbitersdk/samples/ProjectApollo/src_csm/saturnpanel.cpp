@@ -4654,8 +4654,8 @@ bool Saturn::clbkPanelRedrawEvent(int id, int event, SURFHANDLE surf)
 			// [MP]
 			if (MPToPanelConnector.getSyncClient())
 			{
-				euler_rates = MPToPanelConnector.FDAI1_rates;
-				errors = MPToPanelConnector.FDAI1_errors;
+				euler_rates = MPToPanelConnector.FDAI1_Rates;
+				errors = MPToPanelConnector.FDAI1_Errors;
 			}
 
 			else
@@ -4686,8 +4686,8 @@ bool Saturn::clbkPanelRedrawEvent(int id, int event, SURFHANDLE surf)
 			// [MP]
 			if (MPToPanelConnector.getSyncClient())
 			{
-				euler_rates = MPToPanelConnector.FDAI2_rates;
-				errors = MPToPanelConnector.FDAI2_errors;
+				euler_rates = MPToPanelConnector.FDAI2_Rates;
+				errors = MPToPanelConnector.FDAI2_Errors;
 			}
 
 			else

@@ -314,22 +314,36 @@ public:
 		MP_PANEL_SET_RHC,
 		MP_PANEL_THC_CHANGED,
 		MP_PANEL_SET_THC,
+		MP_PANEL_ACA_CHANGED,
+		MP_PANEL_SET_ACA,
+		MP_PANEL_TTCA_CHANGED,
+		MP_PANEL_SET_TTCA,
 		MP_PANEL_RCS_SOUND_CHANGED,
 		MP_PANEL_SET_RCS_SOUND,
 		MP_PANEL_SET_THRUSTER,
 		MP_PANEL_THRUSTER_CHANGED,
 		MP_PANEL_LANDED,
-		MP_PANEL_SET_LANDED
+		MP_PANEL_SET_LANDED,
+		MP_PANEL_RADAR_CHANGED,
+		MP_PANEL_SET_RADAR,
+		MP_PANEL_CROSSPOINTER_CHANGED,
+		MP_PANEL_SET_CROSSPOINTER
 	};
 
 	static enum MP_FdaiType
 	{
-		FDAI1_Target,
-		FDAI1_Rates,
-		FDAI1_Errors,
-		FDAI2_Target,
-		FDAI2_Rates,
-		FDAI2_Errors
+		CSM_FDAI1_Target,
+		CSM_FDAI1_Rates,
+		CSM_FDAI1_Errors,
+		CSM_FDAI2_Target,
+		CSM_FDAI2_Rates,
+		CSM_FDAI2_Errors,
+		LEM_FDAI1_Target,
+		LEM_FDAI1_Rates,
+		LEM_FDAI1_Errors,
+		LEM_FDAI2_Target,
+		LEM_FDAI2_Rates,
+		LEM_FDAI2_Errors
 	};
 
 	MP_PanelConnector(PanelSwitches& p, Saturn* pSat);
@@ -364,30 +378,28 @@ public:
 	VECTOR3 FDAI1;
 	VECTOR3 dFDAI1;
 	VECTOR3 FDAI1_last;
+	VECTOR3 FDAI1_Rates;
+	VECTOR3 dFDAI1_Rates;
+	VECTOR3 FDAI1_Rates_new;
 	
-	VECTOR3 FDAI1_rates;
-	VECTOR3 dFDAI1_rates;
-	VECTOR3 FDAI1_rates_new;
-	
-	VECTOR3 FDAI1_errors;
-	VECTOR3 dFDAI1_errors;
-	VECTOR3 FDAI1_errors_new;
+	VECTOR3 FDAI1_Errors;
+	VECTOR3 dFDAI1_Errors;
+	VECTOR3 FDAI1_Errors_new;
 	
 	double Fdai1Simt1;
 	double Fdai1Simt2;
 	
-
 	VECTOR3 FDAI2;
 	VECTOR3 dFDAI2;
 	VECTOR3 FDAI2_last;
 
-	VECTOR3 FDAI2_rates;
-	VECTOR3 dFDAI2_rates;
-	VECTOR3 FDAI2_rates_new;
+	VECTOR3 FDAI2_Rates;
+	VECTOR3 dFDAI2_Rates;
+	VECTOR3 FDAI2_Rates_new;
 	
-	VECTOR3 FDAI2_errors;
-	VECTOR3 dFDAI2_errors;
-	VECTOR3 FDAI2_errors_new;
+	VECTOR3 FDAI2_Errors;
+	VECTOR3 dFDAI2_Errors;
+	VECTOR3 FDAI2_Errors_new;
 
 	double Fdai2Simt1;
 	double Fdai2Simt2;
@@ -422,6 +434,24 @@ public:
 		double th_dust[4];
 		double th_rcs[16];
 	} lem_thrusters;	// LEM Thruster Levels
+
+	// LEM RR/LR Range & Rate
+	struct
+	{
+		double range;
+		double rate;
+		double light;
+	} lem_radar;
+
+	struct
+	{
+		double lx;
+		double ly;
+		double lLight;
+		double rx;
+		double ry;
+		double rLight;
+	} lem_cross;
 
 private:
 	PanelSwitches& panel;

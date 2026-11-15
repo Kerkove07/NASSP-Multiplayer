@@ -77,6 +77,7 @@ public:
 	void menuDisconnect();
 	void menuSetIP();
 	void menuSetPort();
+	void menuSetLAN();
 
 	void menuChat();
 	void menuSync();

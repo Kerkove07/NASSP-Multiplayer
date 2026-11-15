@@ -55,6 +55,7 @@ public:
 	
 	static struct MPDskyChange
 	{
+		char dsky[32];
 		char name[32];
 		bool state;
 		char cState[7];

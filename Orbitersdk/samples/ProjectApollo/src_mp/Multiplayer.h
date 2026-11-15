@@ -1,3 +1,27 @@
+/***************************************************************************
+  This file is part of Project Apollo - NASSP
+  Copyright 2026
+
+  NASSP Multiplayer
+
+  Project Apollo is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  Project Apollo is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with Project Apollo; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+  See http://nassp.sourceforge.net/license/ for more details.
+
+  **************************************************************************/
+
 /*
 * Modifications and additions for NASSP Multiplayer (unofficial fork):
 * MULTIPLAYER DSKY CONNECTOR
@@ -41,12 +65,22 @@ public:
 		VECTOR3 vel;
 		VECTOR3 apos;
 		VECTOR3 avel;
+		VECTOR3 tvec;
 		double mjd;
+	};
+
+	static struct ThrustVector
+	{
+		std::string name;
+		VECTOR3 tvec;
 	};
 
 	// Initialization
 	const char* Host();
 	const char* Join();
+	
+	void ToggleLAN();
+	bool isLAN() { return ZMQData.useLAN; }
 
 	// Update
 	void Update(double simt, double simdt, double mjd);
@@ -75,9 +109,13 @@ public:
 	void HandleTimeAccelMessage(const char* message);
 	void HandleRhcMessage(const char* message);
 	void HandleThcMessage(const char* message);
+	void HandleAcaMessage(const char* message);
+	void HandleTtcaMessage(const char* message);
 	void HandleRCSSoundMessage(const char* message);
 	void HandleThrusterMessage(const char* message);
 	void HandleLandedMessage(const char* message);
+	void HandleRadarMessage(const char* message);
+	void HandleCrossPointerMessage(const char* message);
 
 	// Deinitialization
 	void Disconnect();
@@ -96,8 +134,8 @@ public:
 	// Senders
 	bool SendChat(const char* message);
 	bool SendSwitch(const char* vessel, const char* name, int state, bool guard, bool hold);
-	bool SendDskyLight(const char* name, bool state);
-	bool SendDskyReg(const char* name, const char* state);
+	bool SendDskyLight(const char* dsky, const char* name, bool state);
+	bool SendDskyReg(const char* dsky, const char* name, const char* state);
 	bool SendMJD();
 	bool SendTimeSyncReq();
 	bool SendToggleSeats(bool bYN);
@@ -106,9 +144,13 @@ public:
 	bool SendTimeAccel(double accel);
 	bool SendRhc(VECTOR3 rhc);
 	bool SendThc(VECTOR3 thc);
+	bool SendAca(VECTOR3 aca);
+	bool SendTtca(VECTOR3 ttca);
 	bool SendRCSSound(bool sound, bool sustain);
 	bool SendThruster(const char* name, int index, double value);
 	bool SendLanded(bool state);
+	bool SendRadar(double range, double rate, double light);
+	bool SendCrossPointer(VECTOR3 left, VECTOR3 right);
 
 	// MFD Callback Registration
 	void RegisterChatMessageCllbk(Callback callback) { onChatMessage = callback; }
@@ -138,6 +180,8 @@ private:
 		zmq::socket_t* socket_explicit;	// Explicit socket (Client Req/Rep)
 
 		Multiplayer::ZeroMQStatus status;
+
+		bool useLAN;
 	} ZMQData;
 
 	std::string address;
@@ -158,9 +202,30 @@ private:
 	double lastTimeAccel = 1.0;
 
 	// EMS Sync
-	double lastEMSDv = 0.0;
+	std::vector<int> emsDvs;
 	double lastSendEMSSimt = 0.0;
 	bool sendEMS = false;
+
+	// Radar Sync
+	std::vector<VECTOR3> radars;
+	double lastSendRadarSimt = 0.0;
+	bool sendRadar = false;
+
+	// Cross Pointer Sync
+	typedef struct crossPointer_t
+	{
+		VECTOR3 left;
+		VECTOR3 right;
+	};
+
+	std::vector<crossPointer_t> crossPointers;
+	double lastSendCrossPointerSimt = 0.0;
+	bool sendCrossPointer = false;
+	
+	// FDAI Sync
+	//std::vector<VECTOR3[3]> fdais;
+	double lastSendFdaiSimt = 0.0;
+	bool sendFDAI = false;
 
 	// SIVB Separation
 	bool SIVBSepTriggerrd = false;
@@ -192,6 +257,7 @@ private:
 	// STATE VECTOR SYNC
 	std::vector<StateVector> lastStateVectors;
 	std::vector<StateVector> stateVectors;
+	std::vector<ThrustVector> thrustVectors;
 	double lastSendSVSimt;
 	double sendSVInterval = 0.2;
 

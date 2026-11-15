@@ -274,6 +274,42 @@ bool MPConnector::SendThc(VECTOR3 thc)
 	return false;
 }
 
+bool MPConnector::SendAca(VECTOR3 aca)
+{
+	ConnectorMessage cm;
+
+	cm.destination = type;
+	cm.messageType = MP_PanelConnector::MP_PANEL_SET_ACA;
+	cm.val1.iValue = aca.x;
+	cm.val2.iValue = aca.y;
+	cm.val3.iValue = aca.z;
+
+	if (SendMessage(cm))
+	{
+		return cm.val1.bValue;
+	}
+
+	return false;
+}
+
+bool MPConnector::SendTtca(VECTOR3 ttca)
+{
+	ConnectorMessage cm;
+
+	cm.destination = type;
+	cm.messageType = MP_PanelConnector::MP_PANEL_SET_TTCA;
+	cm.val1.iValue = ttca.x;
+	cm.val2.iValue = ttca.y;
+	cm.val3.iValue = ttca.z;
+
+	if (SendMessage(cm))
+	{
+		return cm.val1.bValue;
+	}
+
+	return false;
+}
+
 bool MPConnector::SendRCSSound(bool rcsSound, bool rcsSustainSound)
 {
 	ConnectorMessage cm;
@@ -390,6 +426,27 @@ bool MPConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
 				pMP->SendThc({ x, y, z });
 			}
 			break;
+		case MP_PanelConnector::MP_PANEL_ACA_CHANGED:
+			if (pMP)
+			{
+				double x = m.val1.iValue;
+				double y = m.val2.iValue;
+				double z = m.val3.iValue;
+
+				pMP->SendAca({ x, y, z });
+			}
+			break;
+
+		case MP_PanelConnector::MP_PANEL_TTCA_CHANGED:
+			if (pMP)
+			{
+				double x = m.val1.iValue;
+				double y = m.val2.iValue;
+				double z = m.val3.iValue;
+
+				pMP->SendTtca({ x, y, z });
+			}
+			break;
 
 		case MP_PanelConnector::MP_PANEL_THRUSTER_CHANGED:
 			if (pMP)
@@ -405,6 +462,18 @@ bool MPConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
 				pMP->SendLanded(m.val1.bValue);
 			}
 			break;
+
+		case MP_PanelConnector::MP_PANEL_RADAR_CHANGED:
+			if (pMP)
+			{
+				pMP->SendRadar(m.val1.dValue, m.val2.dValue, m.val3.dValue);
+			}
+
+		case MP_PanelConnector::MP_PANEL_CROSSPOINTER_CHANGED:
+			if (pMP)
+			{
+				pMP->SendCrossPointer(m.val1.vValue, m.val2.vValue);
+			}
 
 		/*case MP_PanelConnector::MP_PANEL_RCS_SOUND_CHANGED:
 			if (pMP)

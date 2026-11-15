@@ -193,7 +193,9 @@ public:
 	void Init(LEM *s, e_object * dc_src, e_object *ac_src, SURFHANDLE surf1, SURFHANDLE surf2);
 	void SaveState(FILEHANDLE scn, char *start_str, char *end_str);
 	void LoadState(FILEHANDLE scn, char *end_str);
-	void Timestep(double simdt);
+	// [MP]
+	void Timestep(double simdt, bool multiplayer);
+	// [/MP]
 	void SystemTimestep(double simdt);
 	void setRange(double range) { reqRange = range; };
 	void setRate(double rate) { reqRate = rate; };
@@ -246,7 +248,9 @@ public:
 	void Init(LEM *s, e_object *dc_src, e_object *ltg, ToggleSwitch *scaleSw, bool *ltgRly, bool *dispRly);
 	void SaveState(FILEHANDLE scn, char *start_str);
 	void LoadState(char *line);
-	void Timestep(double simdt);
+	// [MP]
+	void Timestep(double simdt, bool multiplayer);
+	// [MP]
 	void SystemTimestep(double simdt);
 	void GetVelocities(double &vx, double &vy);
 	double GetFwdVel() { return callout_x * 10.0; };
@@ -267,6 +271,9 @@ public:
 	bool GetFwdVelLt() { return FwdVel; };
 	bool GetX01Lt() { return X01; };
 	bool GetX10Lt() { return X10; };
+
+	// [MP]
+	void setVelocities(double vx, double vy);
 
 protected:
 	LEM *lem;

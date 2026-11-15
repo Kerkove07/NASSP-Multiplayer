@@ -5932,15 +5932,19 @@ bool MP_PanelConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
 
 			switch (type)
 			{
-			case FDAI1_Target: MP_Helpers::UpdateFdaiSample(values, FDAI1, FDAI1_last, dFDAI1, Fdai1Simt1, Fdai1Simt2); break;
-			case FDAI2_Target: MP_Helpers::UpdateFdaiSample(values, FDAI2, FDAI2_last, dFDAI2, Fdai2Simt1, Fdai2Simt2); break;
-			case FDAI1_Rates:
-				FDAI1_rates_new = values;
-				//oapiDebugString("RECEVIED FDAI1 RATES");
-				break;
-			case FDAI1_Errors: FDAI1_errors_new = values; break;
-			case FDAI2_Rates:  FDAI2_rates_new = values; break;   // was FDAI1_*
-			case FDAI2_Errors: FDAI2_errors_new = values; break;   // was FDAI1_*
+				case CSM_FDAI1_Target: MP_Helpers::UpdateFdaiSample(values, FDAI1, FDAI1_last, dFDAI1, Fdai1Simt1, Fdai1Simt2); break;
+				case CSM_FDAI2_Target: MP_Helpers::UpdateFdaiSample(values, FDAI2, FDAI2_last, dFDAI2, Fdai2Simt1, Fdai2Simt2); break;
+				case CSM_FDAI1_Rates:  FDAI1_Rates_new = values; break;
+				case CSM_FDAI1_Errors: FDAI1_Errors_new = values; break;
+				case CSM_FDAI2_Rates:  FDAI2_Rates_new = values; break;
+				case CSM_FDAI2_Errors: FDAI2_Errors_new = values; break;
+
+				case LEM_FDAI1_Target: MP_Helpers::UpdateFdaiSample(values, FDAI1, FDAI1_last, dFDAI1, Fdai1Simt1, Fdai1Simt2); break;
+				case LEM_FDAI2_Target: MP_Helpers::UpdateFdaiSample(values, FDAI2, FDAI2_last, dFDAI2, Fdai2Simt1, Fdai2Simt2); break;
+				case LEM_FDAI1_Rates:  FDAI1_Rates_new = values; break;
+				case LEM_FDAI1_Errors: FDAI1_Errors_new = values; break;
+				case LEM_FDAI2_Rates:  FDAI2_Rates_new = values; break;
+				case LEM_FDAI2_Errors: FDAI2_Errors_new = values; break;
 			}
 
 			m.val1.bValue = true;
@@ -5955,6 +5959,20 @@ bool MP_PanelConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
 			return true;
 
 		case MP_PANEL_SET_THC:
+			thc.x = m.val1.iValue;
+			thc.y = m.val2.iValue;
+			thc.z = m.val3.iValue;
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SET_ACA:
+			rhc.x = m.val1.iValue;
+			rhc.y = m.val2.iValue;
+			rhc.z = m.val3.iValue;
+			m.val1.bValue = true;
+			return true;
+
+		case MP_PANEL_SET_TTCA:
 			thc.x = m.val1.iValue;
 			thc.y = m.val2.iValue;
 			thc.z = m.val3.iValue;
@@ -6013,6 +6031,20 @@ bool MP_PanelConnector::ReceiveMessage(Connector* from, ConnectorMessage& m)
 		case MP_PANEL_SET_LANDED:
 			landedState = m.val1.bValue;
 			return true;
+
+		case MP_PANEL_SET_RADAR:
+			lem_radar.range = m.val1.dValue;
+			lem_radar.rate = m.val2.dValue;
+			lem_radar.light = m.val3.dValue;
+			return true;
+
+		case MP_PANEL_SET_CROSSPOINTER:
+			lem_cross.lx = m.val1.vValue.x;
+			lem_cross.ly = m.val1.vValue.y;
+			lem_cross.lLight = m.val1.vValue.z;
+			lem_cross.rx = m.val2.vValue.x;
+			lem_cross.ry = m.val2.vValue.y;
+			lem_cross.rLight = m.val2.vValue.z;
 	}
 
 	return false;
