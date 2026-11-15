@@ -1,6 +1,10 @@
 NASSP MULTIPLAYER
 
-NOTE: This project is in a very early state.  A lot of documentation that will be needed doesn't exist yet.  With that said, a lot of things do work and we have been able to fly several multiplayer scenarios (Launch, Insertion, TLI, TDE, LOI) in the CSM without issue.  The LEM syncs position, velocity, orientation but a lot of the systems are still in progress (ACA, TTCA, DSKY, FDAI, DEDA, gauges, etc.)
+NOTE: This project is in a very early state.  A lot of documentation doesn't exist yet.  With that said, a lot of things work and we have been able to fly several multiplayer scenarios (Launch, Insertion, TLI, TDE, LOI, PDI).
+
+Until the server is complete for this, you will need to use a VPN/Virtual LAN software to connect over the internet.  
+
+Run multiple orbiter instances on your PC for simultaneous cockpit/external views.
 
 Main changes:
 - MULTIPLAYER PLUGIN MODULE
@@ -11,13 +15,13 @@ Main changes:
 
 - SATURN
   - Most switches and displays syncronized between host and client.
-  - All systems run in parallel (Host & Client) until CSM/SIVB separation.
+  - All systems run in parallel (Host & Client LVDC) until CSM/SIVB separation.
 
 - LEM
-  - Most switches work.
-  - FDAIs, gauges, DSKY and DEDA are in progress.
+  - Most switches and displays syncronized between host and client.
+  - Some lights and switches are WIP.
 
-Will update the README with build instructions and eventually put out a release.
+Will update the README with build instructions.
 
 - Updated project/build files for the new module
 - License headers and notices added (GPL-2.0-or-later; see
